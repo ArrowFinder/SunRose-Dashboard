@@ -54,13 +54,12 @@ GitHub will show you commands—use **Part 2** below instead if you already have
 
 ## Part 2 — Turn on GitHub Pages (where the website is served)
 
-1. On GitHub, open your repository.
-2. Click **Settings** (top menu of the repo).
-3. In the left sidebar, click **Pages** (under “Code and automation”).
-4. Under **Build and deployment** → **Source**, choose **Deploy from a branch**.
-5. **Branch**: select **`gh-pages`** and folder **`/ (root)`**, then **Save**.
+This project’s workflow uses **GitHub Actions** to publish (not the `gh-pages` branch).
 
-The first time, **`gh-pages` might not exist yet** until you deploy once (Part 3). After the first deploy, come back and set the branch to **`gh-pages`**.
+1. On GitHub, open your repository → **Settings** → **Pages**.
+2. Under **Build and deployment** → **Source**, choose **GitHub Actions** (not “Deploy from a branch”).
+
+If you previously chose **Deploy from a branch** and saw a **404**, switch the source to **GitHub Actions** so it matches `.github/workflows/deploy-pages.yml`.
 
 ---
 

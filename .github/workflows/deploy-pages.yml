@@ -1,8 +1,9 @@
-# Builds the app and publishes the `dist` folder to the `gh-pages` branch.
-# Add these secrets in the repo: Settings → Secrets and variables → Actions:
+# Publishes via GitHub’s official Pages API (upload artifact → deploy).
+# In the repo: Settings → Pages → Build and deployment → Source: GitHub Actions (not “branch”).
+#
+# Secrets: Settings → Secrets and variables → Actions:
 #   VITE_SUPABASE_URL
 #   VITE_SUPABASE_ANON_KEY
-# (Same values as your local .env — anon key only, never service_role.)
 
 name: Deploy to GitHub Pages
 
@@ -12,12 +13,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    # Use Node 24 for JS-based actions (checkout/setup-node); avoids Node 20 deprecation warnings.
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -26,7 +32,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: "npm"
+          cache: npm
 
       - name: Install and build
         env:
@@ -35,9 +41,18 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm ci && npm run build
 
-      - name: Deploy to gh-pages branch
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          folder: dist
-          branch: gh-pages
-          clean: true
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
