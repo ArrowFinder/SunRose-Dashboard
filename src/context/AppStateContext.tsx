@@ -110,28 +110,38 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      await migrateFromLocalStorageIfNeeded();
-      let b = await loadBundle();
-      if (!isSupabaseConfigured()) {
-        b = ensureOwner(b);
-      }
+    const bootTimeout = window.setTimeout(() => {
       if (cancelled) return;
-      setData(b);
-      if (!isSupabaseConfigured()) {
-        let sid = localStorage.getItem(SESSION_KEY);
-        if (sid && !b.users.some((u) => u.id === sid)) {
-          localStorage.removeItem(SESSION_KEY);
-          sid = null;
-        }
-        setSessionUserId(sid);
-      } else {
-        setSessionUserId(null);
-      }
+      // IndexedDB can stall on some browsers; unblock the UI so auth/login can show.
       setBundleReady(true);
+    }, 20_000);
+    (async () => {
+      try {
+        await migrateFromLocalStorageIfNeeded();
+        let b = await loadBundle();
+        if (!isSupabaseConfigured()) {
+          b = ensureOwner(b);
+        }
+        if (cancelled) return;
+        setData(b);
+        if (!isSupabaseConfigured()) {
+          let sid = localStorage.getItem(SESSION_KEY);
+          if (sid && !b.users.some((u) => u.id === sid)) {
+            localStorage.removeItem(SESSION_KEY);
+            sid = null;
+          }
+          setSessionUserId(sid);
+        } else {
+          setSessionUserId(null);
+        }
+      } finally {
+        window.clearTimeout(bootTimeout);
+        if (!cancelled) setBundleReady(true);
+      }
     })();
     return () => {
       cancelled = true;
+      window.clearTimeout(bootTimeout);
     };
   }, []);
 

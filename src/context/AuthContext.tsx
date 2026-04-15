@@ -38,6 +38,25 @@ type AuthContextValue = AuthState & {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** Avoid infinite "Loading…" if getSession() never settles (ad blockers, network, etc.). */
+const SESSION_LOAD_MS = 18_000;
+const PROFILE_LOAD_MS = 15_000;
+
+function raceTimeout<T>(promise: Promise<T>, ms: number): Promise<T | "timeout"> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => resolve("timeout"), ms);
+    promise
+      .then((v) => {
+        clearTimeout(t);
+        resolve(v);
+      })
+      .catch((e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+  });
+}
+
 async function fetchProfileAndClient(
   userId: string
 ): Promise<{ profile: SupabaseProfile | null; clientId: string | null }> {
@@ -91,7 +110,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const supabase = getSupabase();
-      const { data: { session: s }, error: sessErr } = await supabase.auth.getSession();
+      const sessionResult = await raceTimeout(supabase.auth.getSession(), SESSION_LOAD_MS);
+      if (sessionResult === "timeout") {
+        setError(
+          "Signing in is taking too long. Try turning off ad blockers for this site, check your network, then refresh."
+        );
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setClientMemberClientId(null);
+        return;
+      }
+      const { data: { session: s }, error: sessErr } = sessionResult;
       if (sessErr) {
         setError(sessErr.message);
         setSession(null);
@@ -103,9 +133,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        const { profile: p, clientId } = await fetchProfileAndClient(s.user.id);
-        setProfile(p);
-        setClientMemberClientId(clientId);
+        const profResult = await raceTimeout(
+          fetchProfileAndClient(s.user.id),
+          PROFILE_LOAD_MS
+        );
+        if (profResult === "timeout") {
+          setError("Could not load your profile in time. Refresh the page or try again later.");
+          setProfile(null);
+          setClientMemberClientId(null);
+        } else {
+          setProfile(profResult.profile);
+          setClientMemberClientId(profResult.clientId);
+        }
       } else {
         setProfile(null);
         setClientMemberClientId(null);
