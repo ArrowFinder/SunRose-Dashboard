@@ -124,22 +124,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    void loadSessionAndProfile();
-    const supabase = getSupabase();
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-      if (newSession?.user) {
-        const { profile: p, clientId } = await fetchProfileAndClient(newSession.user.id);
-        setProfile(p);
-        setClientMemberClientId(clientId);
-      } else {
-        setProfile(null);
-        setClientMemberClientId(null);
-      }
-    });
+    let sub: { subscription: { unsubscribe: () => void } } | undefined;
+    try {
+      void loadSessionAndProfile();
+      const supabase = getSupabase();
+      const { data } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+        if (newSession?.user) {
+          try {
+            const { profile: p, clientId } = await fetchProfileAndClient(newSession.user.id);
+            setProfile(p);
+            setClientMemberClientId(clientId);
+          } catch {
+            setProfile(null);
+            setClientMemberClientId(null);
+          }
+        } else {
+          setProfile(null);
+          setClientMemberClientId(null);
+        }
+      });
+      sub = data;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start Supabase auth");
+      setLoading(false);
+    }
     return () => {
-      sub.subscription.unsubscribe();
+      sub?.subscription.unsubscribe();
     };
   }, [configured, loadSessionAndProfile]);
 

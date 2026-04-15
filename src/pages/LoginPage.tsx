@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useAppState } from "../context/AppStateContext";
@@ -60,6 +60,13 @@ export function LoginPage() {
     );
   }
 
+  const sessionNoProfile =
+    cloud && ready && !auth.loading && !!auth.session?.user && !auth.profile;
+
+  useEffect(() => {
+    if (sessionNoProfile) void auth.refreshProfile();
+  }, [sessionNoProfile, auth.refreshProfile]);
+
   if (cloud) {
     return (
       <div className="layout" style={{ maxWidth: "420px" }}>
@@ -70,6 +77,24 @@ export function LoginPage() {
         <p className="muted" style={{ fontSize: "0.85rem" }}>
           Public client views use the shared link; clients don’t need this login.
         </p>
+
+        {sessionNoProfile && (
+          <div className="card" style={{ marginTop: "1rem", background: "var(--accent-soft, #eef6ff)" }}>
+            <p style={{ margin: 0, fontSize: "0.95rem" }}>
+              You’re signed in, but your profile didn’t load. Try <strong>Sign out</strong> and sign
+              in again. If this keeps happening, confirm the SQL migration ran and a row exists in{" "}
+              <code>public.profiles</code> for your user.
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ marginTop: "0.75rem" }}
+              onClick={() => void auth.signOut()}
+            >
+              Sign out
+            </button>
+          </div>
+        )}
 
         <form className="card" style={{ marginTop: "1.25rem" }} onSubmit={submitCloud}>
           <div className="field">
