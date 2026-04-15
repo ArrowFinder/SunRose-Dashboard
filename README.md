@@ -88,26 +88,7 @@ Client links (`#/c/...`) resolve **only where your data exists** (same browser, 
 
 ## GitHub Pages
 
-**Step 1.** Create a GitHub repo (e.g. `sunrose-client-dashboard`).
-
-**Step 2.** In the project root, add a file `.env.production`:
-
-```bash
-VITE_BASE=/your-repo-name/
-```
-
-Use your **exact** repo name, with slashes as shown.
-
-**Step 3.** Build and deploy:
-
-```bash
-npm run build
-npx gh-pages -d dist
-```
-
-**Step 4.** In the repo on GitHub: **Settings → Pages** — set source to **gh-pages** branch (or the folder your tool uses).
-
-**Step 5.** Open `https://<user>.github.io/<your-repo-name>/` — routes use hash URLs (`#/`, `#/settings`, `#/c/...`).
+Step-by-step checklist (create repo, deploy, Supabase URLs, secrets): see **[DEPLOY.md](./DEPLOY.md)**.
 
 ## Tech
 
