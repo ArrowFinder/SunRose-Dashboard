@@ -10,6 +10,23 @@ Your live site will look like:
 
 ---
 
+## If deploy fails: “Branch main is not allowed to deploy to github-pages”
+
+That means the **`github-pages` environment** has **protection rules** that block your `main` branch.
+
+1. On GitHub, open your repo → **Settings** → **Environments** (left sidebar, under “Code and automation”).
+2. Click **`github-pages`**.
+3. **Deployment branches and tags** (or “Deployment branches”):
+   - Choose **All branches**, **or**
+   - **Selected branches** → add **`main`** (or a rule that includes `main`).
+4. **Required reviewers**: set to **none** (0) for a personal project, unless you want to approve every deploy by hand.
+5. **Wait timer**: set to **0 minutes** unless you intentionally want a delay.
+6. **Save**, then re-run the workflow: **Actions** → **Deploy to GitHub Pages** → **Run workflow**.
+
+The Node.js “deprecated” line in annotations is a **warning** from GitHub’s runners; it does not usually fail the job. Fixing the environment rules fixes the **red** error.
+
+---
+
 ## Part 1 — Put the code on GitHub
 
 ### Step 1. Create a new empty repository on GitHub
