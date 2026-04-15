@@ -18,6 +18,13 @@ export function LoginPage() {
     (u) => u.role === "owner" || u.role === "admin" || u.role === "employee"
   );
 
+  const sessionNoProfile =
+    cloud && ready && !auth.loading && !!auth.session?.user && !auth.profile;
+
+  useEffect(() => {
+    if (sessionNoProfile) void auth.refreshProfile();
+  }, [sessionNoProfile, auth.refreshProfile]);
+
   if (ready && sessionUserId && currentUser && currentUser.role !== "client") {
     return <Navigate to="/" replace />;
   }
@@ -59,13 +66,6 @@ export function LoginPage() {
       </div>
     );
   }
-
-  const sessionNoProfile =
-    cloud && ready && !auth.loading && !!auth.session?.user && !auth.profile;
-
-  useEffect(() => {
-    if (sessionNoProfile) void auth.refreshProfile();
-  }, [sessionNoProfile, auth.refreshProfile]);
 
   if (cloud) {
     return (
