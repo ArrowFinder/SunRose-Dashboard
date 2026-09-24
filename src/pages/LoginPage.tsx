@@ -59,6 +59,8 @@ export function LoginPage() {
     }
   }
 
+  if (ready && currentUser?.role === "client" && !currentUser.clientId) return <Navigate to="/" replace />;
+
   if (!ready) {
     return (
       <div className="layout">

@@ -7,7 +7,7 @@ import { WorkItemModal } from "../components/WorkItemModal";
 import { TemplatePickModal } from "../components/TemplatePickModal";
 import { ManualTimeModal } from "../components/ManualTimeModal";
 import { currentYearMonth, labelYearMonth } from "../lib/month";
-import { itemsForMonth, monthSnapshot } from "../lib/scopeMath";
+import { itemsForMonth, monthSnapshot, entryHoursInMonth } from "../lib/scopeMath";
 import { STATUS_LABELS, SCOPE_LABELS } from "../lib/labels";
 import type { TaskTemplate, WorkItem } from "../lib/types";
 import { userCanAccessClient } from "../lib/permissions";
@@ -18,6 +18,7 @@ export function ClientWorkspace() {
   const { clientId } = useParams<{ clientId: string }>();
   const {
     data,
+    cloud,
     currentUser,
     sessionUserId,
     addWorkItem,
@@ -44,7 +45,7 @@ export function ClientWorkspace() {
   const assignableUsers = useMemo(
     () =>
       data.users.filter(
-        (u) => u.role === "owner" || u.role === "admin" || u.role === "employee"
+        (u) => u.active !== false && (u.role === "owner" || u.role === "admin" || u.role === "employee")
       ),
     [data.users]
   );
@@ -72,9 +73,9 @@ export function ClientWorkspace() {
   }, [data.workItems, clientId, yearMonth]);
 
   const entriesThisMonth = useMemo(() => {
-    const ids = new Set(items.map((i) => i.id));
-    return data.timeEntries.filter((e) => ids.has(e.workItemId));
-  }, [data.timeEntries, items]);
+    const ids = new Set(data.workItems.filter(w => w.clientId === clientId).map(w => w.id));
+    return data.timeEntries.filter((e) => ids.has(e.workItemId) && entryHoursInMonth(e, yearMonth) > 0 && !e.voidedAt);
+  }, [data.timeEntries, data.workItems, clientId, yearMonth]);
 
   const clientTemplates = useMemo(
     () => data.taskTemplates.filter((t) => t.clientId === client?.id),
@@ -101,9 +102,9 @@ export function ClientWorkspace() {
     );
   }
 
-  function applyTemplate(t: TaskTemplate) {
+  async function applyTemplate(t: TaskTemplate) {
     if (!client) return;
-    addWorkItem({
+    await addWorkItem({
       clientId: client.id,
       yearMonth,
       title: t.defaultTitle || t.name,
@@ -166,7 +167,7 @@ export function ClientWorkspace() {
         )}
       </div>
 
-      {snap && (
+      {staff && snap && (
         <div className="card">
           <h2 style={{ marginBottom: "0.75rem" }}>{labelYearMonth(yearMonth)}</h2>
           <MonthSnapshot snap={snap} />
@@ -183,13 +184,13 @@ export function ClientWorkspace() {
             <table className="data">
               <thead>
                 <tr>
-                  <th>Pri</th>
+                  {staff && <th>Pri</th>}
                   <th>Title</th>
+                  {staff && <th>Assigned</th>}
                   <th>Due</th>
                   <th>Status</th>
-                  <th>Scope</th>
-                  <th>Est</th>
-                  <th>Actual</th>
+                  {staff && <th>Scope</th>}
+                  {staff && <><th>Est</th><th>Actual</th></>}
                   <th />
                 </tr>
               </thead>
@@ -201,7 +202,7 @@ export function ClientWorkspace() {
                     activeTimer?.workItemId === w.id && activeTimer.userId === sessionUserId;
                   return (
                     <tr key={w.id}>
-                      <td>{w.priority}</td>
+                      {staff && <td>{w.priority}</td>}
                       <td>
                         <strong>{w.title}</strong>
                         {w.description ? (
@@ -210,10 +211,11 @@ export function ClientWorkspace() {
                           </div>
                         ) : null}
                       </td>
+                      {staff && <td>{data.users.find(u => u.id === w.assignedUserId)?.name ?? "Unassigned"}</td>}
                       <td className="muted">{w.dueDate ? w.dueDate.slice(0, 10) : "—"}</td>
                       <td>{STATUS_LABELS[w.status]}</td>
-                      <td>{SCOPE_LABELS[w.scopeCategory]}</td>
-                      <td>{w.estimatedHours}</td>
+                      {staff && <td>{SCOPE_LABELS[w.scopeCategory]}</td>}
+                      {staff && <><td>{w.estimatedHours}</td>
                       <td>
                         {display.toFixed(2)}h
                         {logged > 0 && (
@@ -221,7 +223,7 @@ export function ClientWorkspace() {
                             from timer
                           </span>
                         )}
-                      </td>
+                      </td></>}
                       <td style={{ whiteSpace: "nowrap" }}>
                         {canEdit && staff && (
                           <>
@@ -232,7 +234,7 @@ export function ClientWorkspace() {
                                 type="button"
                                 className="btn btn-ghost"
                                 style={{ padding: "0.25rem 0.4rem" }}
-                                onClick={() => void startTimer(w.id)}
+                                onClick={() => { void startTimer(w.id).catch(() => {}); }}
                               >
                                 Start timer
                               </button>
@@ -256,16 +258,16 @@ export function ClientWorkspace() {
                             >
                               Edit
                             </button>
-                            <button
+                            {(!cloud || isOwnerOrAdmin(currentUser)) && <button
                               type="button"
                               className="btn btn-danger"
                               style={{ padding: "0.25rem 0.4rem" }}
                               onClick={() => {
-                                if (confirm(`Delete “${w.title}”?`)) deleteWorkItem(w.id);
+                                if (confirm(`Delete “${w.title}”?`)) void Promise.resolve(deleteWorkItem(w.id)).catch(() => {});
                               }}
                             >
                               Delete
-                            </button>
+                            </button>}
                           </>
                         )}
                       </td>
@@ -280,7 +282,7 @@ export function ClientWorkspace() {
 
       {staff && entriesThisMonth.length > 0 && (
         <div className="card">
-          <h2 style={{ marginBottom: "0.75rem" }}>Time entries (this month’s tasks)</h2>
+          <h2 style={{ marginBottom: "0.75rem" }}>Time entries (worked this month, UTC)</h2>
           <div className="table-wrap">
             <table className="data">
               <thead>
@@ -288,7 +290,7 @@ export function ClientWorkspace() {
                   <th>When</th>
                   <th>Task</th>
                   <th>User</th>
-                  <th>Min</th>
+                  <th>Min this month</th>
                   <th>Note</th>
                   <th />
                 </tr>
@@ -306,20 +308,20 @@ export function ClientWorkspace() {
                           {e.startedAt.slice(0, 16).replace("T", " ")}
                         </td>
                         <td>{wi?.title ?? e.workItemId}</td>
-                        <td>{u?.name ?? "—"}</td>
-                        <td>{e.durationMinutes}</td>
+                        <td>{u?.name ?? "Former team member"}</td>
+                        <td>{(entryHoursInMonth(e, yearMonth) * 60).toFixed(1)}</td>
                         <td>{e.note || "—"}</td>
                         <td>
-                          <button
+                          {isOwnerOrAdmin(currentUser) && <button
                             type="button"
                             className="btn btn-danger"
                             style={{ padding: "0.2rem 0.4rem" }}
                             onClick={() => {
-                              if (confirm("Remove this time entry?")) deleteTimeEntry(e.id);
+                              if (confirm("Remove this time entry?")) void Promise.resolve(deleteTimeEntry(e.id)).catch(() => {});
                             }}
                           >
-                            Remove
-                          </button>
+                            Void
+                          </button>}
                         </td>
                       </tr>
                     );
@@ -350,7 +352,7 @@ export function ClientWorkspace() {
                     className="btn btn-danger"
                     style={{ marginLeft: "0.5rem", padding: "0.15rem 0.45rem" }}
                     onClick={() => {
-                      if (confirm(`Remove template “${t.name}”?`)) deleteTemplate(t.id);
+                      if (confirm(`Remove template “${t.name}”?`)) void Promise.resolve(deleteTemplate(t.id)).catch(() => {});
                     }}
                   >
                     Remove
@@ -379,11 +381,11 @@ export function ClientWorkspace() {
         allowSaveAsTemplate={!!canEdit && staff}
         defaultYearMonth={yearMonth}
         assignableUsers={assignableUsers}
-        onSave={(payload, opts) => {
-          if (editing) updateWorkItem(editing.id, payload);
-          else addWorkItem(payload);
+        onSave={async (payload, opts) => {
+          if (editing) await updateWorkItem(editing.id, { ...payload, updatedAt: editing.updatedAt });
+          else await addWorkItem(payload);
           if (opts?.saveAsTemplate) {
-            addTemplate({
+            await addTemplate({
               name: opts.templateName ?? payload.title,
               defaultTitle: payload.title,
               defaultDescription: payload.description,
@@ -407,10 +409,10 @@ export function ClientWorkspace() {
           open={!!manualFor}
           onClose={() => setManualFor(null)}
           taskTitle={manualFor.title}
-          onSave={(minutes, note, day) => {
-            const start = new Date(`${day}T12:00:00`).toISOString();
+          onSave={async (minutes, note, day) => {
+            const start = new Date(`${day}T00:00:00Z`).toISOString();
             const end = new Date(new Date(start).getTime() + minutes * 60000).toISOString();
-            addTimeEntryManual({
+            await addTimeEntryManual({
               workItemId: manualFor.id,
               userId: sessionUserId,
               startedAt: start,

@@ -1,0 +1,278 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { PGlite } from "@electric-sql/pglite";
+const db = new PGlite();
+const owner = "00000000-0000-4000-8000-000000000001",
+  employee = "00000000-0000-4000-8000-000000000002",
+  clientUser = "00000000-0000-4000-8000-000000000003",
+  outsider = "00000000-0000-4000-8000-000000000004";
+const clientA = "10000000-0000-4000-8000-000000000001",
+  clientB = "10000000-0000-4000-8000-000000000002";
+const taskA = "20000000-0000-4000-8000-000000000001",
+  privateTask = "20000000-0000-4000-8000-000000000002",
+  taskB = "20000000-0000-4000-8000-000000000003";
+async function as(user, sql, args = []) {
+  await db.exec("begin");
+  try {
+    await db.exec(
+      user ? "set local role authenticated" : "set local role anon",
+    );
+    await db.query("select set_config('request.jwt.claim.sub',$1,true)", [
+      user ?? "",
+    ]);
+    const result = await db.query(sql, args);
+    await db.exec("commit");
+    return result.rows;
+  } catch (e) {
+    await db.exec("rollback");
+    throw e;
+  }
+}
+await db.exec(
+  `create role authenticated; create role anon; create schema auth; create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}'); create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; grant usage on schema auth to authenticated,anon; grant execute on function auth.uid() to authenticated,anon;`,
+);
+const first = (
+  await readFile(
+    new URL(
+      "../supabase/migrations/20250201000000_profiles.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  )
+).replace('create extension if not exists "pgcrypto";', "");
+const migration = await readFile(
+  new URL(
+    "../supabase/migrations/20260923000000_shared_workspace.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+await db.exec(first);
+await db.exec(migration);
+await db.exec(
+  `insert into auth.users(id,email) values('${owner}','owner@example.test'),('${employee}','employee@example.test'),('${clientUser}','client@example.test'),('${outsider}','outsider@example.test');update public.profiles set role='owner' where id='${owner}';update public.profiles set role='employee' where id='${employee}';insert into public.clients(id,name,share_token) values('${clientA}','Client A','token-a'),('${clientB}','Client B','token-b');insert into public.client_members(user_id,client_id) values('${clientUser}','${clientA}');insert into public.work_items(id,client_id,year_month,title,client_visible) values('${taskA}','${clientA}','2026-09','Shared A',true),('${privateTask}','${clientA}','2026-09','Internal notes',false),('${taskB}','${clientB}','2026-09','Shared B',true);`,
+);
+
+test("signed-in client receives only narrow fields, never raw tables", async () => {
+  assert.equal((await as(clientUser,"select * from public.clients")).length,0);
+  assert.equal((await as(clientUser,"select * from public.work_items")).length,0);
+  const [row]=await as(clientUser,"select public.member_client_view() as view");
+  assert.equal(row.view.client.name,"Client A");
+  assert.equal(row.view.client.share_token,undefined);
+  assert.equal(row.view.items.length,1);
+  assert.equal(row.view.items[0].title,"Shared A");
+  assert.equal(row.view.items[0].description,undefined);
+  assert.equal((await as(outsider,"select * from public.work_items")).length,0);
+});
+
+test("anonymous share link returns narrow fields without exposing another client", async () => {
+  const [r] = await as(
+    null,
+    "select public.shared_client_view($1,$2) as view",
+    ["token-a", "2026-09"],
+  );
+  assert.deepEqual(r.view.client, { name: "Client A" });
+  assert.equal(r.view.items.length, 1);
+  assert.deepEqual(Object.keys(r.view.items[0]).sort(), [
+    "dueDate",
+    "id",
+    "status",
+    "title",
+  ]);
+  await assert.rejects(
+    as(null, "select public.shared_client_view($1,$2)", ["wrong", "2026-09"]),
+  );
+  await assert.rejects(as(null, "select * from public.work_items"));
+});
+test("new accounts cannot self-promote or gain team access", async () => {
+  await assert.rejects(
+    as(outsider, "update public.profiles set role='owner' where id=$1", [
+      outsider,
+    ]),
+  );
+  await assert.rejects(
+    as(employee, "select public.manage_member($1,'owner','me',true,null)", [
+      employee,
+    ]),
+  );
+  assert.equal(
+    (
+      await as(outsider, "select role from public.profiles where id=$1", [
+        outsider,
+      ])
+    )[0].role,
+    "client",
+  );
+});
+test("owner assigns an existing account to the team", async () => {
+  await as(
+    owner,
+    "select public.manage_member($1,'employee','New employee',true,null)",
+    [outsider],
+  );
+  assert.equal(
+    (await as(outsider, "select * from public.work_items")).length,
+    3,
+  );
+});
+test("timer survives reload, switching saves previous task, stale stop is rejected", async () => {
+  const [started] = await as(
+    employee,
+    "select (public.start_work_timer($1,$2)).*",
+    [taskA, "30000000-0000-4000-8000-000000000001"],
+  );
+  const [persisted] = await as(employee, "select * from public.active_timers");
+  assert.equal(persisted.work_item_id, taskA);
+  await as(employee, "select public.start_work_timer($1,$2)", [
+    taskB,
+    "30000000-0000-4000-8000-000000000002",
+  ]);
+  assert.equal(
+    (await as(owner, "select * from public.time_entries")).length,
+    1,
+  );
+  await assert.rejects(
+    as(employee, "select public.stop_work_timer($1,$2)", [
+      taskA,
+      started.started_at,
+    ]),
+  );
+  assert.equal(
+    (await as(employee, "select * from public.active_timers"))[0].work_item_id,
+    taskB,
+  );
+});
+test("duplicate start request cannot switch back; duplicate stop saves once", async () => {
+  await as(employee, "select public.start_work_timer($1,$2)", [
+    taskA,
+    "30000000-0000-4000-8000-000000000001",
+  ]);
+  const [timer] = await as(employee, "select * from public.active_timers");
+  assert.equal(timer.work_item_id, taskB);
+  await as(employee, "select public.stop_work_timer($1,$2)", [
+    taskB,
+    timer.started_at,
+  ]);
+  await as(employee, "select public.stop_work_timer($1,$2)", [
+    taskB,
+    timer.started_at,
+  ]);
+  assert.equal(
+    (await as(owner, "select * from public.time_entries")).length,
+    2,
+  );
+  assert.equal(
+    (await as(employee, "select * from public.active_timers")).length,
+    0,
+  );
+});
+test("cannot forge another employee’s time or access timer as a client", async () => {
+  await assert.rejects(
+    as(
+      employee,
+      "insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values($1,$2,now()-interval '1 minute',now(),1)",
+      [taskA, owner],
+    ),
+  );
+  await assert.rejects(
+    as(clientUser, "select public.start_work_timer($1,$2)", [
+      taskA,
+      "30000000-0000-4000-8000-000000000005",
+    ]),
+  );
+});
+test("time history is retained when voided and protects parent deletion", async () => {
+  const [entry] = await as(
+    owner,
+    "select * from public.time_entries order by id",
+  );
+  await assert.rejects(
+    as(owner, "delete from public.work_items where id=$1", [
+      entry.work_item_id,
+    ]),
+  );
+  await assert.rejects(
+    as(owner, "delete from public.clients where id=$1", [clientA]),
+  );
+  await assert.rejects(
+    as(employee, "select public.void_time_entry($1,$2)", [entry.id, "wrong"]),
+  );
+  await as(owner, "select public.void_time_entry($1,$2)", [
+    entry.id,
+    "Duplicate manual record",
+  ]);
+  const [saved] = await as(
+    owner,
+    "select * from public.time_entries where id=$1",
+    [entry.id],
+  );
+  assert.ok(saved.voided_at);
+  assert.equal(saved.void_reason, "Duplicate manual record");
+  assert.ok(
+    (
+      await as(
+        owner,
+        "select * from public.workspace_audit where table_name='time_entries' and row_id=$1",
+        [entry.id],
+      )
+    ).length >= 2,
+  );
+});
+test("deactivated employee loses access without losing historical hours", async () => {
+  await as(
+    owner,
+    "select public.manage_member($1,'employee','Former employee',false,null)",
+    [employee],
+  );
+  assert.equal(
+    (await as(employee, "select * from public.work_items")).length,
+    0,
+  );
+  assert.equal(
+    (await as(owner, "select * from public.time_entries")).length,
+    2,
+  );
+});
+test("client request retries are idempotent and require approval", async () => {
+  const id = "40000000-0000-4000-8000-000000000001";
+  for (let i = 0; i < 2; i++)
+    await as(null, "select public.submit_client_request($1,$2,$3,$4)", [
+      "token-a",
+      id,
+      "New video",
+      "Please review",
+    ]);
+  const rows = await as(owner, "select * from public.work_items where id=$1", [
+    id,
+  ]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].client_id, clientA);
+  assert.equal(rows[0].scope_category, "needs_approval");
+  assert.equal(rows[0].assigned_user_id, null);
+});
+test("link rotation revokes the old link", async () => {
+  await as(owner, "update public.clients set share_token=$1 where id=$2", [
+    "new-token-a",
+    clientA,
+  ]);
+  await assert.rejects(
+    as(null, "select public.shared_client_view($1,$2)", ["token-a", "2026-09"]),
+  );
+  assert.equal(
+    (
+      await as(null, "select public.shared_client_view($1,$2) as view", [
+        "new-token-a",
+        "2026-09",
+      ])
+    )[0].view.client.name,
+    "Client A",
+  );
+});
+test("migration can run again without losing records", async () => {
+  await db.exec(migration);
+  assert.equal(
+    (await as(owner, "select * from public.time_entries")).length,
+    2,
+  );
+});

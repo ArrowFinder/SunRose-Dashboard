@@ -36,44 +36,56 @@ import { parseImportFile } from "../lib/exchange";
 import { useAuth } from "./AuthContext";
 import { isSupabaseConfigured } from "../lib/supabaseClient";
 
+import { CloudAppStateProvider } from "./CloudAppStateContext";
+
+export function AppStateProvider({ children }: { children: ReactNode }) {
+  return isSupabaseConfigured() ? <CloudAppStateProvider>{children}</CloudAppStateProvider> : <LocalAppStateProvider>{children}</LocalAppStateProvider>;
+}
+
 const SESSION_KEY = "sunrose-session-user-id";
 
-type Ctx = {
+type Result<T> = T | Promise<T>;
+export type Ctx = {
   ready: boolean;
+  correctTimer?: (end: string, reason: string) => Promise<void>;
+  cloud?: boolean;
+  saving?: boolean;
+  syncError?: string | null;
+  refresh?: () => Promise<void>;
   data: AppBundle;
   currentUser: User | null;
   sessionUserId: string | null;
   activeTimer: ActiveTimer | null;
   login: (userId: string, pin?: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Result<void>;
   refreshActiveTimer: () => Promise<void>;
-  update: (next: AppBundle) => void;
-  addClient: (name: string, retainerHoursPerMonth: number) => Client;
+  update: (next: AppBundle) => Result<void>;
+  addClient: (name: string, retainerHoursPerMonth: number) => Result<Client>;
   updateClient: (
     id: string,
     patch: Partial<Pick<Client, "name" | "retainerHoursPerMonth" | "color">>
-  ) => void;
-  deleteClient: (id: string) => void;
-  regenerateShareToken: (clientId: string) => string;
-  addWorkItem: (item: Omit<WorkItem, "id" | "createdAt" | "updatedAt">) => WorkItem;
-  updateWorkItem: (id: string, patch: Partial<WorkItem>) => void;
-  deleteWorkItem: (id: string) => void;
+  ) => Result<void>;
+  deleteClient: (id: string) => Result<void>;
+  regenerateShareToken: (clientId: string) => Result<string>;
+  addWorkItem: (item: Omit<WorkItem, "id" | "createdAt" | "updatedAt">) => Result<WorkItem>;
+  updateWorkItem: (id: string, patch: Partial<WorkItem>) => Result<void>;
+  deleteWorkItem: (id: string) => Result<void>;
   addUser: (name: string, role: UserRole, clientId?: string, pin?: string) => Promise<User>;
-  updateUser: (id: string, patch: Partial<Pick<User, "name" | "role" | "clientId">>) => void;
-  deleteUser: (id: string) => void;
+  updateUser: (id: string, patch: Partial<Pick<User, "name" | "role" | "clientId">>) => Result<void>;
+  deleteUser: (id: string) => Result<void>;
   setUserPin: (userId: string, pin: string | null) => Promise<void>;
-  addTemplate: (t: Omit<TaskTemplate, "id" | "createdAt">) => TaskTemplate;
-  updateTemplate: (id: string, patch: Partial<TaskTemplate>) => void;
-  deleteTemplate: (id: string) => void;
-  addTimeEntryManual: (e: Omit<TimeEntry, "id" | "createdAt">) => TimeEntry;
-  deleteTimeEntry: (id: string) => void;
+  addTemplate: (t: Omit<TaskTemplate, "id" | "createdAt">) => Result<TaskTemplate>;
+  updateTemplate: (id: string, patch: Partial<TaskTemplate>) => Result<void>;
+  deleteTemplate: (id: string) => Result<void>;
+  addTimeEntryManual: (e: Omit<TimeEntry, "id" | "createdAt">) => Result<TimeEntry>;
+  deleteTimeEntry: (id: string) => Result<void>;
   startTimer: (workItemId: string) => Promise<void>;
   stopTimer: () => Promise<void>;
-  loadDemo: () => void;
-  importData: (text: string) => void;
+  loadDemo: () => Result<void>;
+  importData: (text: string) => Result<void>;
 };
 
-const AppStateContext = createContext<Ctx | null>(null);
+export const AppStateContext = createContext<Ctx | null>(null);
 
 function emptyBundle(): AppBundle {
   return { clients: [], workItems: [], users: [], timeEntries: [], taskTemplates: [] };
@@ -91,7 +103,7 @@ function ensureOwner(bundle: AppBundle): AppBundle {
   return { ...bundle, users: [owner] };
 }
 
-export function AppStateProvider({ children }: { children: ReactNode }) {
+function LocalAppStateProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const cloud = auth.isConfigured;
 

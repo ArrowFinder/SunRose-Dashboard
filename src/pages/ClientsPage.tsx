@@ -1,9 +1,13 @@
+import { isSupabaseConfigured } from "../lib/supabaseClient";
+import { CloudClientsPage } from "./CloudClientsPage";
 import { useRef, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
 import { downloadBackup } from "../lib/storage";
 
-export function ClientsPage() {
+export function ClientsPage() { return isSupabaseConfigured() ? <CloudClientsPage /> : <LocalClientsPage />; }
+
+function LocalClientsPage() {
   const {
     data,
     addClient,

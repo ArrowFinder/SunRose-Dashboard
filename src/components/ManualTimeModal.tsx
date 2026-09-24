@@ -4,33 +4,40 @@ type Props = {
   open: boolean;
   onClose: () => void;
   taskTitle: string;
-  onSave: (minutes: number, note: string, day: string) => void;
+  onSave: (minutes: number, note: string, day: string) => void | Promise<void>;
 };
 
 export function ManualTimeModal({ open, onClose, taskTitle, onSave }: Props) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [minutes, setMinutes] = useState(30);
   const [note, setNote] = useState("");
   const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
 
   if (!open) return null;
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     const m = Math.max(1, Math.round(minutes));
-    onSave(m, note.trim(), day);
-    onClose();
+    if (busy) return;
+    setBusy(true); setError(null);
+    try { await onSave(m, note.trim(), day); onClose(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not save time."); }
+    finally { setBusy(false); }
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal onClick={onClose}>
+    <div className="modal-backdrop" role="dialog" aria-modal onClick={() => { if (!busy) onClose(); }}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>Log time manually</h2>
         <p className="muted" style={{ fontSize: "0.9rem" }}>
           {taskTitle}
         </p>
         <form onSubmit={submit}>
+          {error && <p role="alert">{error}</p>}
+          <fieldset disabled={busy} style={{border:0,padding:0,margin:0}}>
           <div className="field">
-            <label htmlFor="day">Day</label>
+            <label htmlFor="day">Day (UTC)</label>
             <input id="day" type="date" className="input" value={day} onChange={(e) => setDay(e.target.value)} required />
           </div>
           <div className="field">
@@ -38,6 +45,8 @@ export function ManualTimeModal({ open, onClose, taskTitle, onSave }: Props) {
             <input
               id="min"
               type="number"
+              required
+              max={1440}
               min={1}
               step={1}
               className="input"
@@ -57,6 +66,7 @@ export function ManualTimeModal({ open, onClose, taskTitle, onSave }: Props) {
               Add entry
             </button>
           </div>
+        </fieldset>
         </form>
       </div>
     </div>

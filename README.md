@@ -1,5 +1,7 @@
 # SunRose — Client scope dashboard
 
+**Shared-workspace upgrade:** see [SHARED-WORKSPACE.md](./SHARED-WORKSPACE.md) for implementation, tests, and rollout. With Supabase configured, tasks, clients, time records, and templates now use shared storage. Without it, the app remains offline. For the upgrade, follow the new rollout guide rather than the original prototype setup notes below.
+
 Lightweight internal + client-facing views to track retainers, tasks, **timer-based time entries**, calendar due dates, templates, and team roles (owner / admin / employee / optional client profile). **Offline mode:** data lives in **IndexedDB** in this browser; export/import JSON (v2) for backups. **Optional cloud login:** connect a free [Supabase](https://supabase.com) account so you can sign in with email and password—see **Simple Supabase setup** below.
 
 ## Simple Supabase setup (optional — email login)

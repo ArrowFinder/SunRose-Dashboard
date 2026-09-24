@@ -167,22 +167,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       void loadSessionAndProfile();
       const supabase = getSupabase();
-      const { data } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      // Supabase holds an auth lock while notifying listeners. Fetch the profile
+      // after the callback returns, otherwise token refresh can deadlock.
+      const { data } = supabase.auth.onAuthStateChange((_event, newSession) => {
         setSession(newSession);
         setUser(newSession?.user ?? null);
-        if (newSession?.user) {
-          try {
-            const { profile: p, clientId } = await fetchProfileAndClient(newSession.user.id);
-            setProfile(p);
-            setClientMemberClientId(clientId);
-          } catch {
-            setProfile(null);
-            setClientMemberClientId(null);
-          }
-        } else {
-          setProfile(null);
-          setClientMemberClientId(null);
+        if (!newSession?.user) {
+          setProfile(null); setClientMemberClientId(null); return;
         }
+        window.setTimeout(() => {
+          void fetchProfileAndClient(newSession.user.id).then(({profile:p,clientId}) => {
+            setProfile(p); setClientMemberClientId(clientId);
+          }).catch(() => { setProfile(null); setClientMemberClientId(null); });
+        }, 0);
       });
       sub = data;
     } catch (e) {

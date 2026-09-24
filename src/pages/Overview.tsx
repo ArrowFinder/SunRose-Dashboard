@@ -13,6 +13,8 @@ export function Overview() {
     return <Navigate to={`/client/${currentUser.clientId}`} replace />;
   }
 
+  if (currentUser?.role === "client") return <div className="card"><h1>Welcome</h1><p>Your account is waiting for the owner to assign access.</p></div>;
+
   const clients = clientsVisibleToUser(currentUser, data.clients);
 
   const rows = clients
@@ -40,7 +42,7 @@ export function Overview() {
         <h1>Overview</h1>
         <p className="muted">
           {labelYearMonth(ym)} — sorted by lowest headroom first (scope risk). Used hours include
-          timer entries when logged.
+          billable time worked in this month (UTC).
         </p>
       </div>
       <div className="grid-2">

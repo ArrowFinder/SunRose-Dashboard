@@ -78,14 +78,6 @@ export function CalendarPage() {
   const { data, currentUser } = useAppState();
   const [cursor, setCursor] = useState(() => new Date());
 
-  if (currentUser?.role === "client") {
-    return currentUser.clientId ? (
-      <Navigate to={`/client/${currentUser.clientId}`} replace />
-    ) : (
-      <Navigate to="/" replace />
-    );
-  }
-
   const y = cursor.getFullYear();
   const m = cursor.getMonth();
   const firstDow = startOfCalendarMonth(cursor).getDay();
@@ -113,6 +105,14 @@ export function CalendarPage() {
     }
     return map;
   }, [data.workItems, y, m]);
+
+  if (currentUser?.role === "client") {
+    return currentUser.clientId ? (
+      <Navigate to={`/client/${currentUser.clientId}`} replace />
+    ) : (
+      <Navigate to="/" replace />
+    );
+  }
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstDow; i++) cells.push(null);

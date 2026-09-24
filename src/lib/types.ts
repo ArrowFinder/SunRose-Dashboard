@@ -39,6 +39,7 @@ export interface WorkItem {
   dueDate?: string | null;
   assignedUserId?: string | null;
   templateId?: string | null;
+  clientVisible?: boolean;
 }
 
 export interface User {
@@ -49,10 +50,12 @@ export interface User {
   clientId?: string;
   /** SHA-256 hex of PIN; omit = no PIN required to select user */
   pinHash?: string;
+  active?: boolean;
   createdAt: string;
 }
 
 export interface TimeEntry {
+  voidedAt?: string | null;
   id: string;
   workItemId: string;
   userId: string;
