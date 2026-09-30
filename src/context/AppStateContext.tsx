@@ -47,6 +47,7 @@ const SESSION_KEY = "sunrose-session-user-id";
 type Result<T> = T | Promise<T>;
 export type Ctx = {
   ready: boolean;
+  correctTimeEntry?: (entryId: string, minutes: number, expectedMinutes: number, expectedTotalMinutes: number) => Promise<void>;
   correctTimer?: (end: string, reason: string) => Promise<void>;
   cloud?: boolean;
   saving?: boolean;
@@ -520,6 +521,16 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
       ready,
       data,
       currentUser,
+      correctTimeEntry: async (entryId: string, minutes: number, expectedMinutes: number, expectedTotalMinutes: number) => {
+        if (currentUser?.role !== "owner" && currentUser?.role !== "admin") throw new Error("Only an owner or admin can correct Actual Hours");
+        const entry = data.timeEntries.find(e => e.id === entryId && !e.voidedAt);
+        if (!entry || entry.durationMinutes !== expectedMinutes || data.timeEntries.filter(e => e.workItemId === entry.workItemId && !e.voidedAt).reduce((n,e) => n + e.durationMinutes,0) !== expectedTotalMinutes) throw new Error("Clock time changed. Reopen this task before correcting it.");
+        if (activeTimer?.workItemId === entry.workItemId) throw new Error("Stop the running clock first.");
+        if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) throw new Error("Corrected session must be between 0 and 24 hours");
+        const endedAt = new Date(Date.parse(entry.startedAt) + minutes * 60000).toISOString();
+        if (Date.parse(endedAt) > Date.now() + 60000) throw new Error("Corrected time cannot end in the future");
+        setData(d => ({...d,timeEntries:d.timeEntries.map(e => e.id !== entryId ? e : minutes === 0 ? {...e,voidedAt:new Date().toISOString()} : {...e,durationMinutes:minutes,endedAt,note:[e.note,`Owner/admin correction: ${e.durationMinutes} to ${minutes} minutes`].filter(Boolean).join("\n")})}));
+      },
       sessionUserId: effectiveSessionUserId,
       activeTimer,
       login,

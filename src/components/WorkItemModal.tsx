@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { ScopeCategory, WorkItem, WorkSource, WorkStatus } from "../lib/types";
-import type { User } from "../lib/types";
-import { SCOPE_LABELS, SOURCE_LABELS, STATUS_LABELS } from "../lib/labels";
+import type { WorkItem } from "../lib/types";
+import type { User, TimeEntry } from "../lib/types";
+import { useAppState } from "../context/AppStateContext";
+import { effectiveActualHours, minutesLoggedForWorkItem } from "../lib/hours";
 import { currentYearMonth } from "../lib/month";
 
 export type WorkItemSaveOptions = {
@@ -23,15 +24,6 @@ type Props = {
   assignableUsers: User[];
 };
 
-const statuses: WorkStatus[] = ["backlog", "planned", "in_progress", "done"];
-const scopes: ScopeCategory[] = [
-  "in_scope",
-  "needs_approval",
-  "approved_overage",
-  "out_of_scope",
-];
-const sources: WorkSource[] = ["internal", "client"];
-
 export function WorkItemModal({
   open,
   onClose,
@@ -43,18 +35,23 @@ export function WorkItemModal({
   defaultYearMonth,
   assignableUsers,
 }: Props) {
+  const { currentUser, data, correctTimeEntry } = useAppState();
+  const canOverride = currentUser?.role === "owner" || currentUser?.role === "admin";
+  const [showCorrectionWarning, setShowCorrectionWarning] = useState(false);
+  const [overrideEditing, setOverrideEditing] = useState(false);
+  const [selectedEntryId, setSelectedEntryId] = useState("");
+  const [correctionEntries, setCorrectionEntries] = useState<TimeEntry[]>([]);
+  const [correctionSaved, setCorrectionSaved] = useState(false);
+  const taskEntries = data.timeEntries.filter(e => e.workItemId === initial?.id && !e.voidedAt).sort((a,b) => b.startedAt.localeCompare(a.startedAt));
+  const displayedHours = initial ? effectiveActualHours(initial, data.timeEntries) : 0;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientVisible, setClientVisible] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [yearMonth, setYearMonth] = useState(defaultYearMonth);
-  const [status, setStatus] = useState<WorkStatus>("backlog");
-  const [scopeCategory, setScopeCategory] = useState<ScopeCategory>("in_scope");
-  const [source, setSource] = useState<WorkSource>("internal");
   const [estimatedHours, setEstimatedHours] = useState(1);
   const [actualHours, setActualHours] = useState(0);
-  const [priority, setPriority] = useState(10);
   const [dueDate, setDueDate] = useState<string>("");
   const [assignedUserId, setAssignedUserId] = useState<string>("");
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
@@ -63,17 +60,15 @@ export function WorkItemModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setOverrideEditing(false); setShowCorrectionWarning(false); setCorrectionSaved(false);
+    setSelectedEntryId(data.timeEntries.filter(e => e.workItemId === initial?.id && !e.voidedAt).sort((a,b) => b.startedAt.localeCompare(a.startedAt))[0]?.id ?? "");
     setClientVisible(initial?.clientVisible ?? false);
     if (initial) {
       setTitle(initial.title);
       setDescription(initial.description);
       setYearMonth(initial.yearMonth);
-      setStatus(initial.status);
-      setScopeCategory(initial.scopeCategory);
-      setSource(initial.source);
       setEstimatedHours(initial.estimatedHours);
-      setActualHours(initial.actualHours);
-      setPriority(initial.priority);
+      setActualHours(effectiveActualHours(initial, data.timeEntries));
       setDueDate(initial.dueDate && initial.dueDate.length >= 10 ? initial.dueDate.slice(0, 10) : "");
       setAssignedUserId(initial.assignedUserId ?? "");
       setSaveAsTemplate(false);
@@ -82,12 +77,8 @@ export function WorkItemModal({
       setTitle("");
       setDescription("");
       setYearMonth(defaultYearMonth);
-      setStatus("backlog");
-      setScopeCategory("in_scope");
-      setSource("internal");
       setEstimatedHours(1);
       setActualHours(0);
-      setPriority(10);
       setDueDate("");
       setAssignedUserId("");
       setSaveAsTemplate(false);
@@ -97,21 +88,38 @@ export function WorkItemModal({
 
   if (!open) return null;
 
+  async function applyCorrection() {
+    if (!canOverride || !correctTimeEntry || busy || !initial) return;
+    const entry = correctionEntries.find(e => e.id === selectedEntryId);
+    if (!entry || !Number.isFinite(actualHours) || actualHours < 0) { setError("Choose a session and enter a nonnegative number of hours."); return; }
+    const total = minutesLoggedForWorkItem(initial.id, correctionEntries);
+    const minutes = Math.round(actualHours * 60) - (total - entry.durationMinutes);
+    if (minutes < 0 || minutes > 1440) { setError("The selected session must be between 0 and 24 hours. Choose the session that needs correcting."); return; }
+    setBusy(true); setError(null);
+    try {
+      await correctTimeEntry(entry.id, minutes, entry.durationMinutes, total);
+      setOverrideEditing(false); setCorrectionSaved(true);
+    } catch(e) { setError(e instanceof Error ? e.message : "Could not correct time."); }
+    finally { setBusy(false); }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
+    if (overrideEditing) { setError("Apply or cancel the time correction before saving the task."); return; }
     const payload: Omit<WorkItem, "id" | "createdAt" | "updatedAt"> = {
       clientId,
       clientVisible,
       yearMonth: yearMonth || currentYearMonth(),
       title: title.trim(),
       description: description.trim(),
-      source,
-      status,
-      scopeCategory,
+      source: initial?.source ?? "internal",
+      status: initial?.status ?? "backlog",
+      scopeCategory: initial?.scopeCategory ?? "in_scope",
       estimatedHours: Math.max(0, estimatedHours),
-      actualHours: Math.max(0, actualHours),
-      priority,
+      actualHours: initial?.actualHours ?? 0,
+
+      priority: initial?.priority ?? 10,
       dueDate: dueDate ? dueDate : null,
       assignedUserId: assignedUserId || null,
       templateId: initial?.templateId ?? null,
@@ -183,18 +191,6 @@ export function WorkItemModal({
             </div>
           </div>
           <div className="row">
-            <div className="field" style={{ flex: 1, minWidth: "120px" }}>
-              <label htmlFor="pri">Priority</label>
-              <input
-                id="pri"
-                className="input"
-                type="number"
-                min={1}
-                max={999}
-                value={priority}
-                onChange={(e) => setPriority(Number(e.target.value))}
-              />
-            </div>
             <div className="field" style={{ flex: 1, minWidth: "160px" }}>
               <label htmlFor="as">Assigned</label>
               <select
@@ -214,53 +210,6 @@ export function WorkItemModal({
           </div>
           <div className="row">
             <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="st">Status</label>
-              <select
-                id="st"
-                className="text-input input"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as WorkStatus)}
-              >
-                {statuses.map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="sc">Scope</label>
-              <select
-                id="sc"
-                className="text-input input"
-                value={scopeCategory}
-                onChange={(e) => setScopeCategory(e.target.value as ScopeCategory)}
-              >
-                {scopes.map((s) => (
-                  <option key={s} value={s}>
-                    {SCOPE_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="row">
-            <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="src">Source</label>
-              <select
-                id="src"
-                className="text-input input"
-                value={source}
-                onChange={(e) => setSource(e.target.value as WorkSource)}
-              >
-                {sources.map((s) => (
-                  <option key={s} value={s}>
-                    {SOURCE_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field" style={{ flex: 1 }}>
               <label htmlFor="est">Est. hours</label>
               <input
                 id="est"
@@ -273,17 +222,38 @@ export function WorkItemModal({
               />
             </div>
             <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="act">Actual hours (manual)</label>
+              <label htmlFor="act">Actual Hours</label>
               <input
                 id="act"
                 className="input"
                 type="number"
                 min={0}
-                step={0.25}
-                value={actualHours}
-                onChange={(e) => setActualHours(Number(e.target.value))}
-                title="Used when you have no timer entries on this task"
+                step="any"
+                value={overrideEditing ? (Number.isFinite(actualHours) ? actualHours : "") : displayedHours}
+                readOnly={!canOverride || !overrideEditing}
+                onFocus={() => {
+                  if (!canOverride || overrideEditing || !taskEntries.length || !correctTimeEntry) return;
+                  setShowCorrectionWarning(true);
+                }}
+                onChange={(e) => { setActualHours(e.target.value === "" ? NaN : Number(e.target.value));  }}
+                title={canOverride ? "Click to override clock tracking" : "Only an owner or admin can override clock tracking"}
               />
+              <p className="muted" style={{fontSize:"0.8rem"}}>From saved clock time. Only an owner/admin can correct a time session.</p>
+              {showCorrectionWarning && <div role="alertdialog" aria-label="Override clock tracking" className="card">
+                <p><strong>This will override the clock tracking</strong> for the selected time session on this task. Future clock time will keep adding normally.</p>
+                <button type="button" className="btn btn-primary" onClick={() => { setActualHours(displayedHours); setCorrectionEntries(taskEntries); setOverrideEditing(true); setCorrectionSaved(false); setShowCorrectionWarning(false); }}>Continue with correction</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setShowCorrectionWarning(false)}>Keep clock time</button>
+              </div>}
+              {correctionSaved && <p role="status">Time corrected. Future clock time will add normally.</p>}
+              {overrideEditing && <div>
+                <label htmlFor="correction-session">Time session to correct</label>
+                <select id="correction-session" className="input" value={selectedEntryId} onChange={e => setSelectedEntryId(e.target.value)}>
+                  {correctionEntries.map(entry => <option key={entry.id} value={entry.id}>{new Date(entry.startedAt).toLocaleString()} — {data.users.find(u => u.id === entry.userId)?.name ?? "Team member"} — {(entry.durationMinutes/60).toFixed(2)}h</option>)}
+                </select>
+                <p className="muted">Adjust the task total above. The difference applies only to this session. Stop any running clock on this task first.</p>
+                <button type="button" className="btn btn-primary" onClick={() => void applyCorrection()}>Apply time correction</button>
+                <button type="button" className="btn btn-ghost" onClick={() => { setOverrideEditing(false); setError(null); }}>Cancel correction</button>
+              </div>}
             </div>
           </div>
 

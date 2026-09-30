@@ -50,6 +50,7 @@ const migration = await readFile(
 );
 await db.exec(first);
 await db.exec(migration);
+await db.exec(await readFile(new URL("../supabase/migrations/20260930000000_actual_hours_override.sql",import.meta.url),"utf8"));
 await db.exec(
   `insert into auth.users(id,email) values('${owner}','owner@example.test'),('${employee}','employee@example.test'),('${clientUser}','client@example.test'),('${outsider}','outsider@example.test');update public.profiles set role='owner' where id='${owner}';update public.profiles set role='employee' where id='${employee}';insert into public.clients(id,name,share_token) values('${clientA}','Client A','token-a'),('${clientB}','Client B','token-b');insert into public.client_members(user_id,client_id) values('${clientUser}','${clientA}');insert into public.work_items(id,client_id,year_month,title,client_visible) values('${taskA}','${clientA}','2026-09','Shared A',true),('${privateTask}','${clientA}','2026-09','Internal notes',false),('${taskB}','${clientB}','2026-09','Shared B',true);`,
 );
@@ -275,4 +276,45 @@ test("migration can run again without losing records", async () => {
     (await as(owner, "select * from public.time_entries")).length,
     2,
   );
+});
+
+test("only owners/admins can correct a session; future time continues normally", async () => {
+  await as(owner,"select public.manage_member($1,'employee','Employee',true,null)",[employee]);
+  const [task] = await as(owner,"insert into public.work_items(client_id,year_month,title) values($1,'2026-09','Correction test') returning id",[clientA]);
+  const [entry] = await as(employee,"insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values($1,$2,'2026-09-01T09:00Z','2026-09-01T17:00Z',480) returning id",[task.id,employee]);
+  await assert.rejects(as(employee,"select public.correct_time_entry($1,120,480,480)",[entry.id]),/Only an owner or admin/);
+  await assert.rejects(as(employee,"update public.work_items set actual_hours=2 where id=$1",[task.id]),/Only an owner or admin/);
+  await as(owner,"select public.correct_time_entry($1,120,480,480)",[entry.id]);
+  const [corrected] = await as(owner,"select * from public.time_entries where id=$1",[entry.id]);
+  assert.equal(corrected.duration_minutes,120);
+  assert.equal(new Date(corrected.ended_at).toISOString(),'2026-09-01T11:00:00.000Z');
+  assert.equal(corrected.user_id,employee);
+  const audit=await as(owner,"select before_row,after_row from public.workspace_audit where row_id=$1 and operation='UPDATE'",[entry.id]);
+  assert.equal(audit[0].before_row.duration_minutes,480);
+  assert.equal(audit[0].after_row.duration_minutes,120);
+  await assert.rejects(as(owner,"select public.correct_time_entry($1,60,480,480)",[entry.id]),/Clock time changed/);
+  await as(employee,"insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values($1,$2,'2026-09-02T09:00Z','2026-09-02T10:00Z',60)",[task.id,employee]);
+  const [total]=await as(owner,"select sum(duration_minutes) as total from public.time_entries where work_item_id=$1 and voided_at is null",[task.id]);
+  assert.equal(Number(total.total),180);
+  await as(owner,"select public.correct_time_entry($1,0,120,180)",[entry.id]);
+  assert.equal((await as(owner,"select * from public.time_entries where id=$1 and voided_at is not null",[entry.id])).length,1);
+  assert.equal(Number((await as(owner,"select sum(duration_minutes) as total from public.time_entries where work_item_id=$1 and voided_at is null",[task.id]))[0].total),60);
+});
+
+test("corrections reject active clocks and invalid durations",async()=>{
+  const [task]=await as(owner,"insert into public.work_items(client_id,year_month,title) values($1,'2026-09','Running correction test') returning id",[clientA]);
+  const [entry]=await as(owner,"insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values($1,$2,'2026-09-03T09:00Z','2026-09-03T10:00Z',60) returning id",[task.id,owner]);
+  await assert.rejects(as(owner,"select public.correct_time_entry($1,-1,60,60)",[entry.id]),/between 0 and 24/);
+  await assert.rejects(as(owner,"select public.correct_time_entry($1,1441,60,60)",[entry.id]),/between 0 and 24/);
+  await as(owner,"select public.start_work_timer($1,gen_random_uuid())",[task.id]);
+  await assert.rejects(as(owner,"select public.correct_time_entry($1,30,60,60)",[entry.id]),/running clock/);
+});
+
+test("admin can correct another employee’s session and the migration is repeatable",async()=>{
+  await as(owner,"select public.manage_member($1,'admin','Admin',true,null)",[outsider]);
+  const [task]=await as(owner,"insert into public.work_items(client_id,year_month,title) values($1,'2026-09','Admin correction test') returning id",[clientA]);
+  const [entry]=await as(employee,"insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values($1,$2,'2026-09-04T09:00Z','2026-09-04T11:00Z',120) returning id",[task.id,employee]);
+  await as(outsider,"select public.correct_time_entry($1,60,120,120)",[entry.id]);
+  await db.exec(await readFile(new URL("../supabase/migrations/20260930000000_actual_hours_override.sql",import.meta.url),"utf8"));
+  assert.equal((await as(owner,"select duration_minutes from public.time_entries where id=$1",[entry.id]))[0].duration_minutes,60);
 });

@@ -233,6 +233,9 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
     throw new Error("This action is available only in offline mode.");
   };
   const value: Ctx = {
+    correctTimeEntry: (entryId, minutes, expectedMinutes, expectedTotalMinutes) => mutate(async () => {
+      checked(await db.rpc("correct_time_entry", { entry_id: entryId, corrected_minutes: minutes, expected_minutes: expectedMinutes, expected_task_minutes: expectedTotalMinutes }));
+    }),
     cloud: true,
     ready: !auth.loading && (loaded || !!syncError),
     data,
