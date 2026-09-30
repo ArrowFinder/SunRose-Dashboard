@@ -10,6 +10,7 @@ export function LoginPage() {
   const [userId, setUserId] = useState("");
   const [pin, setPin] = useState("");
   const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [err, setErr] = useState<string | null>(null);
@@ -62,8 +63,10 @@ export function LoginPage() {
         if (error) setErr(error.message);
         else setNotice("If an account exists for that email, a password-reset link has been sent. Check your inbox and spam folder.");
       } else {
-        const fn = mode === "signin" ? auth.signIn : auth.signUp;
-        const { error } = await fn(email.trim(), password);
+        const { error } = mode === "signin"
+          ? await auth.signIn(email.trim(), password)
+          : await auth.signUp(email.trim(), password, displayName);
+        if (!error && mode === "signup") setNotice("Account created. Check your email to confirm your account. An owner or admin will assign your access.");
         if (error) setErr(error);
       }
     } catch {
@@ -113,6 +116,11 @@ export function LoginPage() {
         )}
 
         <form className="card" style={{ marginTop: "1.25rem" }} onSubmit={submitCloud}>
+          {mode === "signup" && <div className="field">
+            <label htmlFor="display-name">Your name</label>
+            <input id="display-name" className="input" autoComplete="name" required maxLength={100} value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+            <p className="muted">This is how your name will appear throughout SunRose.</p>
+          </div>}
           <div className="field">
             <label htmlFor="em">Email</label>
             <input

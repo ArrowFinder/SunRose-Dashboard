@@ -12,8 +12,7 @@ function Member({ member }: { member: User }) {
   const locked =
     member.id === currentUser?.id ||
     !isOwnerOrAdmin(currentUser) ||
-    member.active === false ||
-    (currentUser?.role !== "owner" && ["owner", "admin"].includes(member.role));
+    member.active === false;
   return (
     <form
       className="card"
@@ -37,6 +36,7 @@ function Member({ member }: { member: User }) {
             <input
               className="input"
               required
+              maxLength={100}
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -50,12 +50,8 @@ function Member({ member }: { member: User }) {
             >
               <option value="client">Client / awaiting access</option>
               <option value="employee">Employee</option>
-              {currentUser?.role === "owner" && (
-                <>
-                  <option value="admin">Admin</option>
-                  <option value="owner">Owner</option>
-                </>
-              )}
+              <option value="admin">Admin</option>
+              <option value="owner">Owner</option>
             </select>
           </label>
           {role === "client" && (
@@ -111,10 +107,11 @@ export function CloudTeamPage() {
     <div className="stack">
       <h1>Team</h1>
       <p>
-        Team members create an account from the app’s sign-in page. The owner
-        then grants employee or client access here. New accounts cannot see
+        Team members create an account from the app’s sign-in page. An owner or admin
+        then assigns their access here. New accounts cannot see
         business work until assigned access.
       </p>
+      <p className="muted">Owner and Admin have full workspace and account management access. Employees manage work and track time. Clients see only work shared with their assigned business.</p>
       {data.users.map((u) => (
         <Member key={u.id} member={u} />
       ))}

@@ -79,6 +79,7 @@ h2 {
 .muted {
   color: var(--muted);
   font-size: 0.875rem;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .card {
@@ -103,7 +104,7 @@ h2 {
   font-size: 0.875rem;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   background: var(--bg);
 }
 
@@ -113,14 +114,38 @@ h2 {
   color: #fff;
 }
 
-.btn-primary:hover {
-  filter: brightness(1.05);
+.btn-primary:hover:not(:disabled) {
+  background: #9a3412;
+  border-color: #9a3412;
+  color: #fff;
+  box-shadow: 0 3px 9px rgba(154, 52, 18, 0.2);
+}
+
+.btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: none; }
 }
 
 .btn-danger {
   background: var(--danger-soft);
   border-color: #fecaca;
   color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+  box-shadow: 0 3px 9px rgba(185, 28, 28, 0.18);
 }
 
 .btn-ghost {

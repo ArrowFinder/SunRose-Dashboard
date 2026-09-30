@@ -56,6 +56,9 @@ await db.exec(
   `insert into auth.users(id,email) values('${owner}','owner@example.test'),('${employee}','employee@example.test'),('${clientUser}','client@example.test'),('${outsider}','outsider@example.test');update public.profiles set role='owner' where id='${owner}';update public.profiles set role='employee' where id='${employee}';insert into public.clients(id,name,share_token) values('${clientA}','Client A','token-a'),('${clientB}','Client B','token-b');insert into public.client_members(user_id,client_id) values('${clientUser}','${clientA}');insert into public.work_items(id,client_id,year_month,title,client_visible) values('${taskA}','${clientA}','2026-09','Shared A',true),('${privateTask}','${clientA}','2026-09','Internal notes',false),('${taskB}','${clientB}','2026-09','Shared B',true);`,
 );
 
+const accountMigration = await readFile(new URL("../supabase/migrations/20261001000000_account_names_and_roles.sql", import.meta.url), "utf8");
+await db.exec(accountMigration);
+
 test("signed-in client receives only narrow fields, never raw tables", async () => {
   assert.equal((await as(clientUser,"select * from public.clients")).length,0);
   assert.equal((await as(clientUser,"select * from public.work_items")).length,0);
@@ -276,6 +279,7 @@ test("link rotation revokes the old link", async () => {
 });
 test("migration can run again without losing records", async () => {
   await db.exec(migration);
+  await db.exec(accountMigration);
   await db.exec(await readFile(new URL("../supabase/migrations/20260930010000_subtasks.sql",import.meta.url),"utf8"));
   assert.equal(
     (await as(owner, "select * from public.time_entries")).length,
@@ -371,4 +375,51 @@ test('client parent progress includes private work without exposing private deta
   await assert.rejects(as(employee,"select public.client_task_items($1,null)",[clientB]),/permission denied/);
   await db.exec(hierarchyMigration);
   assert.equal((await as(owner,"select parent_id from public.work_items where id=$1",[hidden.id]))[0].parent_id,parent.id);
+});
+
+test('signup requires a name and ignores elevated role metadata', async () => {
+ const id = '00000000-0000-4000-8000-000000000010';
+ for (const name of [null, '', '   ', 'a'.repeat(101)]) {
+  await assert.rejects(db.query('insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)', [id,'new@example.test',JSON.stringify({display_name:name,role:'owner'})]), /Enter your name/);
+ }
+ await db.query('insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)', [id,'new@example.test',JSON.stringify({display_name:'  Aaron Pathfinder  ',role:'owner'})]);
+ const [profile] = await as(id,'select display_name,role from public.profiles where id=$1',[id]);
+ assert.deepEqual(profile, {display_name:'Aaron Pathfinder',role:'client'});
+ assert.equal((await as(id,'select * from public.work_items')).length,0);
+ await as(id,"select public.update_my_name('Aaron P.')");
+ assert.equal((await as(id,'select display_name from public.profiles where id=$1',[id]))[0].display_name,'Aaron P.');
+ await assert.rejects(as(id,"select public.manage_member($1,'owner','Aaron',true,null)",[id]),/Owner or admin/);
+});
+test('names can be changed by their account holder without changing access',async()=>{
+ for (const id of [owner,employee,clientUser]) {
+  const [before]=await as(id,'select role from public.profiles where id=$1',[id]);
+  await as(id,"select public.update_my_name('  Updated name  ')");
+  assert.deepEqual((await as(id,'select display_name,role from public.profiles where id=$1',[id]))[0],{display_name:'Updated name',role:before.role});
+  await assert.rejects(as(id,"select public.update_my_name('   ')"),/Enter your name/);
+ }
+ await assert.rejects(as(null,"select public.update_my_name('Anonymous')"),/permission denied/);
+});
+test('admins have the same member management access as owners',async()=>{
+ await as(outsider,"select public.manage_member($1,'owner','Renamed owner',true,null)",[owner]);
+ await as(outsider,"select public.manage_member($1,'admin','Promoted admin',true,null)",[employee]);
+ assert.equal((await as(owner,'select role from public.profiles where id=$1',[employee]))[0].role,'admin');
+ await as(outsider,"select public.manage_member($1,'employee','Employee',true,null)",[employee]);
+ await assert.rejects(as(outsider,"select public.manage_member($1,'employee','Self demotion',true,null)",[outsider]),/own access/);
+ await assert.rejects(as(outsider,"select public.manage_member($1,'employee','  ',true,null)",[employee]),/Enter a name/);
+ await assert.rejects(as(employee,"select public.manage_member($1,'client','Other',true,$2)",[owner,clientA]),/Owner or admin/);
+ await as(owner,"select public.manage_member($1,'employee','Inactive',false,null)",[employee]);
+ await assert.rejects(as(employee,"select public.update_my_name('Still inactive')"),/Active account/);
+ await as(owner,"select public.manage_member($1,'employee','Employee',true,null)",[employee]);
+ await db.exec(accountMigration);
+ assert.equal((await as(owner,'select display_name from public.profiles where id=$1',[owner]))[0].display_name,'Renamed owner');
+});
+
+test('only owners and admins decide which tasks are shared',async()=>{
+ await assert.rejects(as(employee,"update public.work_items set client_visible=false where id=$1",[taskA]),/owner or admin/);
+ await assert.rejects(as(employee,"insert into public.work_items(client_id,year_month,title,client_visible) values($1,'2026-09','Unapproved share',true)",[clientA]),/owner or admin/);
+ await as(employee,"update public.work_items set title='Employee updated task' where id=$1",[taskA]);
+ await as(outsider,"update public.work_items set client_visible=false where id=$1",[taskA]);
+ const [view]=await as(clientUser,'select public.member_client_view() as v');
+ assert(!view.v.items.some(i=>i.id===taskA));
+ await as(owner,"update public.work_items set client_visible=true where id=$1",[taskA]);
 });

@@ -98,6 +98,7 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      update_my_name: { Args: { new_name: string }; Returns: undefined };
       correct_time_entry: { Args: { entry_id: string; corrected_minutes: number; expected_minutes: number; expected_task_minutes: number }; Returns: undefined };
       member_client_view: { Args: Record<string, never>; Returns: { client: { id: string; name: string; color: string | null; createdAt: string }; items: { id: string; clientId: string; title: string; status: WorkItem["status"]; dueDate: string | null; yearMonth: string; parentId: string | null; completedSubtasks: number; totalSubtasks: number }[] } | null };
       workspace_revision: { Args: Record<string, never>; Returns: number | null };
