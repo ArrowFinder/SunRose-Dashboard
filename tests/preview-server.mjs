@@ -10,6 +10,7 @@ await db.exec(
 for (const file of [
   "20250201000000_profiles.sql",
   "20260923000000_shared_workspace.sql",
+  "20260930000000_actual_hours_override.sql",
 ])
   await db.exec(
     (
@@ -36,6 +37,9 @@ for (const u of users)
 await db.exec(
   `update public.profiles set role='owner',display_name='Preview Owner' where id='${users[0].id}';update public.profiles set role='employee',display_name='Preview Employee' where id='${users[1].id}';insert into public.clients(id,name,share_token,retainer_hours_per_month,color) values('10000000-0000-4000-8000-000000000001','Preview client','preview-client-link',10,'#c2410c');insert into public.client_members(user_id,client_id) values('${users[2].id}','10000000-0000-4000-8000-000000000001');`,
 );
+// A deliberately overlong saved session for exercising owner/admin correction.
+await db.exec(`insert into public.work_items(id,client_id,year_month,title) values('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',to_char(now(),'YYYY-MM'),'Sample time correction');
+insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values('20000000-0000-4000-8000-000000000001','${users[1].id}',now()-interval '1 day',now()-interval '16 hours',480);`);
 const allowed = new Set([
   "clients",
   "profiles",
@@ -51,6 +55,7 @@ const rpc = new Set([
   "start_work_timer",
   "stop_work_timer",
   "correct_work_timer",
+  "correct_time_entry",
   "manage_member",
   "void_time_entry",
   "shared_client_view",
