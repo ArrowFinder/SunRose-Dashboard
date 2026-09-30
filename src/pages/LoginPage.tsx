@@ -1,3 +1,4 @@
+import { getSupabase } from "../lib/supabaseClient";
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -10,8 +11,11 @@ export function LoginPage() {
   const [pin, setPin] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [err, setErr] = useState<string | null>(null);
+
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const cloud = auth.isConfigured;
   const internalUsers = data.users.filter(
@@ -47,17 +51,29 @@ export function LoginPage() {
   async function submitCloud(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    if (!email.trim() || !password) {
-      setErr("Email and password are required.");
-      return;
-    }
-    const fn = mode === "signin" ? auth.signIn : auth.signUp;
-    const { error } = await fn(email.trim(), password);
-    if (error) {
-      setErr(error);
-      return;
+    setNotice("");
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (mode === "reset") {
+        const { error } = await getSupabase().auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: window.location.origin + import.meta.env.BASE_URL,
+        });
+        if (error) setErr(error.message);
+        else setNotice("If an account exists for that email, a password-reset link has been sent. Check your inbox and spam folder.");
+      } else {
+        const fn = mode === "signin" ? auth.signIn : auth.signUp;
+        const { error } = await fn(email.trim(), password);
+        if (error) setErr(error);
+      }
+    } catch {
+      setErr("Could not connect. Please try again.");
+    } finally {
+      setBusy(false);
     }
   }
+
+  if (ready && currentUser?.role === "client" && !currentUser.clientId) return <Navigate to="/" replace />;
 
   if (!ready) {
     return (
@@ -109,7 +125,7 @@ export function LoginPage() {
               required
             />
           </div>
-          <div className="field">
+          {mode !== "reset" && <div className="field">
             <label htmlFor="pw">Password</label>
             <input
               id="pw"
@@ -120,7 +136,8 @@ export function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-          </div>
+          </div>}
+          {notice && <p role="status">{notice}</p>}
           {auth.error && (
             <p style={{ color: "var(--danger)", fontSize: "0.9rem", marginTop: 0 }}>{auth.error}</p>
           )}
@@ -128,8 +145,8 @@ export function LoginPage() {
             <p style={{ color: "var(--danger)", fontSize: "0.9rem", marginTop: 0 }}>{err}</p>
           )}
           <div className="row" style={{ marginTop: "0.5rem", gap: "0.75rem", flexWrap: "wrap" }}>
-            <button type="submit" className="btn btn-primary">
-              {mode === "signin" ? "Sign in" : "Sign up"}
+            <button type="submit" className="btn btn-primary" disabled={busy}>
+              {busy ? "Please wait…" : mode === "reset" ? "Send reset link" : mode === "signin" ? "Sign in" : "Sign up"}
             </button>
             <button
               type="button"
@@ -137,10 +154,12 @@ export function LoginPage() {
               onClick={() => {
                 setMode(mode === "signin" ? "signup" : "signin");
                 setErr(null);
+                setNotice("");
               }}
             >
               {mode === "signin" ? "Need an account?" : "Have an account? Sign in"}
             </button>
+            {mode === "signin" && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => { setMode("reset"); setErr(null); setNotice(""); }}>Forgot password?</button>}
           </div>
         </form>
       </div>

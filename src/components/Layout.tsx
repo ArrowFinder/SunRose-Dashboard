@@ -4,7 +4,7 @@ import { TimerBar } from "./TimerBar";
 import { isInternalUser } from "../lib/permissions";
 
 export function Layout() {
-  const { currentUser, logout } = useAppState();
+  const { currentUser, logout, saving, syncError, refresh, cloud } = useAppState();
   const navigate = useNavigate();
   const staff = isInternalUser(currentUser);
 
@@ -41,15 +41,17 @@ export function Layout() {
               type="button"
               className="btn btn-ghost"
               style={{ marginLeft: "auto" }}
-              onClick={() => {
-                logout();
-                navigate("/login");
+              disabled={saving}
+              onClick={async () => {
+                try { await logout(); navigate("/login"); } catch { /* Shared error banner retains the failure. */ }
               }}
             >
               Sign out ({currentUser?.name})
             </button>
           </nav>
         </header>
+        {cloud && <p role="status">{saving ? "Saving…" : "Shared workspace · updates every 30 seconds"} <button className="btn btn-ghost" disabled={saving} onClick={() => void refresh?.()}>Refresh</button></p>}
+        {syncError && <p role="alert" className="card">{syncError}</p>}
         <Outlet />
       </div>
     </>

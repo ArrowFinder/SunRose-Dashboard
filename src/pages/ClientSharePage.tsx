@@ -1,3 +1,5 @@
+import { isSupabaseConfigured } from "../lib/supabaseClient";
+import { CloudClientSharePage } from "./CloudClientSharePage";
 import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
@@ -18,7 +20,9 @@ function sortForClientView(items: WorkItem[]): WorkItem[] {
   });
 }
 
-export function ClientSharePage() {
+export function ClientSharePage() { return isSupabaseConfigured() ? <CloudClientSharePage /> : <LocalClientSharePage />; }
+
+function LocalClientSharePage() {
   const { token } = useParams<{ token: string }>();
   const { data, addWorkItem } = useAppState();
   const [yearMonth] = useState(currentYearMonth);

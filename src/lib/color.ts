@@ -5,7 +5,13 @@ export function colorForClientId(id: string): string {
     h = (h * 31 + id.charCodeAt(i)) >>> 0;
   }
   const hue = h % 360;
-  return `hsl(${hue} 55% 42%)`;
+  const saturation = 0.55, lightness = 0.42;
+  const channel = (n: number) => {
+    const k = (n + hue / 30) % 12;
+    const a = saturation * Math.min(lightness, 1 - lightness);
+    return Math.round(255 * (lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))).toString(16).padStart(2, "0");
+  };
+  return `#${channel(0)}${channel(8)}${channel(4)}`;
 }
 
 export function hexOrDefault(client: { id: string; color?: string }): string {

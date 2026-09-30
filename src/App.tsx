@@ -1,4 +1,5 @@
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { PasswordRecovery } from "./components/PasswordRecovery";
 import { AuthProvider } from "./context/AuthContext";
 import { AppStateProvider } from "./context/AppStateContext";
 import { Layout } from "./components/Layout";
@@ -15,6 +16,7 @@ import { CalendarPage } from "./pages/CalendarPage";
 export default function App() {
   return (
     <AuthProvider>
+      <PasswordRecovery>
       <AppStateProvider>
       <HashRouter>
         <Routes>
@@ -34,6 +36,7 @@ export default function App() {
         </Routes>
       </HashRouter>
       </AppStateProvider>
+      </PasswordRecovery>
     </AuthProvider>
   );
 }

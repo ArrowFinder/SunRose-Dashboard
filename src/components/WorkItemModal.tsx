@@ -13,7 +13,7 @@ export type WorkItemSaveOptions = {
 type Props = {
   open: boolean;
   onClose: () => void;
-  onSave: (item: Omit<WorkItem, "id" | "createdAt" | "updatedAt">, opts?: WorkItemSaveOptions) => void;
+  onSave: (item: Omit<WorkItem, "id" | "createdAt" | "updatedAt">, opts?: WorkItemSaveOptions) => void | Promise<void>;
   initial?: WorkItem | null;
   clientId: string;
   clientName: string;
@@ -43,6 +43,9 @@ export function WorkItemModal({
   defaultYearMonth,
   assignableUsers,
 }: Props) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [clientVisible, setClientVisible] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [yearMonth, setYearMonth] = useState(defaultYearMonth);
@@ -59,6 +62,8 @@ export function WorkItemModal({
 
   useEffect(() => {
     if (!open) return;
+    setError(null);
+    setClientVisible(initial?.clientVisible ?? false);
     if (initial) {
       setTitle(initial.title);
       setDescription(initial.description);
@@ -92,11 +97,12 @@ export function WorkItemModal({
 
   if (!open) return null;
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
     const payload: Omit<WorkItem, "id" | "createdAt" | "updatedAt"> = {
       clientId,
+      clientVisible,
       yearMonth: yearMonth || currentYearMonth(),
       title: title.trim(),
       description: description.trim(),
@@ -119,15 +125,20 @@ export function WorkItemModal({
           }
         : undefined;
 
-    onSave(payload, opts);
-    onClose();
+    if (busy) return;
+    setBusy(true); setError(null);
+    try { await onSave(payload, opts); onClose(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not save. Please try again."); }
+    finally { setBusy(false); }
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal onClick={onClose}>
+    <div className="modal-backdrop" role="dialog" aria-modal onClick={() => { if (!busy) onClose(); }}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>{initial ? "Edit work item" : "Add work item"}</h2>
         <form onSubmit={submit}>
+          {error && <p role="alert">{error}</p>}
+          <fieldset disabled={busy} style={{border:0,padding:0,margin:0}}>
           <div className="field">
             <label htmlFor="title">Title</label>
             <input
@@ -276,6 +287,7 @@ export function WorkItemModal({
             </div>
           </div>
 
+          <label><input type="checkbox" checked={clientVisible} onChange={e => setClientVisible(e.target.checked)} /> Show this task in the client view</label>
           {allowSaveAsTemplate && (
             <div
               className="card"
@@ -325,6 +337,7 @@ export function WorkItemModal({
               Save
             </button>
           </div>
+          </fieldset>
         </form>
       </div>
     </div>

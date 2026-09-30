@@ -1,10 +1,14 @@
+import { isSupabaseConfigured } from "../lib/supabaseClient";
+import { CloudTeamPage } from "./CloudTeamPage";
 import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
 import type { UserRole } from "../lib/types";
 import { isOwnerOrAdmin } from "../lib/permissions";
 
-export function TeamPage() {
+export function TeamPage() { return isSupabaseConfigured() ? <CloudTeamPage /> : <LocalTeamPage />; }
+
+function LocalTeamPage() {
   const {
     data,
     addUser,
