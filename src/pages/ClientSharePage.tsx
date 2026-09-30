@@ -6,8 +6,9 @@ import { useAppState } from "../context/AppStateContext";
 import { MonthSnapshot } from "../components/MonthSnapshot";
 import { ScopeAlert } from "../components/ScopeAlert";
 import { currentYearMonth, labelYearMonth } from "../lib/month";
-import { itemsForMonth, monthSnapshot } from "../lib/scopeMath";
+import { monthSnapshot } from "../lib/scopeMath";
 import { STATUS_LABELS } from "../lib/labels";
+import { taskRootsForMonth, taskSummary, subtasksFor } from "../lib/taskTree";
 import type { WorkItem } from "../lib/types";
 
 function sortForClientView(items: WorkItem[]): WorkItem[] {
@@ -43,9 +44,7 @@ function LocalClientSharePage() {
 
   const items = useMemo(() => {
     if (!client) return [];
-    return sortForClientView(itemsForMonth(data.workItems, client.id, yearMonth)).filter(
-      (w) => w.status !== "done"
-    );
+    return sortForClientView(taskRootsForMonth(data.workItems, client.id, yearMonth).filter(w => w.clientVisible));
   }, [client, data.workItems, yearMonth]);
 
   if (!client) {
@@ -118,8 +117,10 @@ function LocalClientSharePage() {
                 <strong>{w.title}</strong>
                 <span className="muted" style={{ fontSize: "0.85rem" }}>
                   {" "}
-                  · {STATUS_LABELS[w.status]}
+                  · {STATUS_LABELS[taskSummary(w,data.workItems,data.timeEntries).status]}
                 </span>
+                {subtasksFor(w,data.workItems).length > 0 && <p>{taskSummary(w,data.workItems,data.timeEntries).done} of {taskSummary(w,data.workItems,data.timeEntries).total} complete</p>}
+                <ul>{subtasksFor(w,data.workItems).filter(c => c.clientVisible).map(c => <li key={c.id}>{c.title} · {STATUS_LABELS[c.status]}</li>)}</ul>
               </li>
             ))}
           </ol>

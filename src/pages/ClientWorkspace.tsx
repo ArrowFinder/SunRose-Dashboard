@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
 import { MonthSnapshot } from "../components/MonthSnapshot";
 import { ScopeAlert } from "../components/ScopeAlert";
@@ -7,14 +7,16 @@ import { WorkItemModal } from "../components/WorkItemModal";
 import { TemplatePickModal } from "../components/TemplatePickModal";
 import { ManualTimeModal } from "../components/ManualTimeModal";
 import { currentYearMonth, labelYearMonth } from "../lib/month";
-import { itemsForMonth, monthSnapshot, entryHoursInMonth } from "../lib/scopeMath";
+import { monthSnapshot, entryHoursInMonth } from "../lib/scopeMath";
 import { STATUS_LABELS, SCOPE_LABELS } from "../lib/labels";
 import type { TaskTemplate, WorkItem } from "../lib/types";
 import { userCanAccessClient } from "../lib/permissions";
 import { isInternalUser, isOwnerOrAdmin } from "../lib/permissions";
-import { effectiveActualHours, hoursLoggedForWorkItem } from "../lib/hours";
+import { hoursLoggedForWorkItem } from "../lib/hours";
+import { subtasksFor, taskSummary, taskRootsForMonth } from "../lib/taskTree";
 
 export function ClientWorkspace() {
+  const [searchParams] = useSearchParams();
   const { clientId } = useParams<{ clientId: string }>();
   const {
     data,
@@ -32,10 +34,21 @@ export function ClientWorkspace() {
     deleteTemplate,
   } = useAppState();
   const [yearMonth, setYearMonth] = useState(currentYearMonth);
+  const [parentTask, setParentTask] = useState<WorkItem | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [actionError, setActionError] = useState("");
+  const [changingStatus, setChangingStatus] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<WorkItem | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [manualFor, setManualFor] = useState<WorkItem | null>(null);
+
+  useEffect(() => {
+    const month = searchParams.get("month");
+    if (month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)) setYearMonth(month);
+    const task = searchParams.get("task");
+    if (task) setExpanded(old => new Set([...old,task]));
+  }, [searchParams]);
 
   const staff = isInternalUser(currentUser);
   const canEdit = currentUser && userCanAccessClient(currentUser, clientId ?? "") && staff;
@@ -66,10 +79,7 @@ export function ClientWorkspace() {
 
   const items = useMemo(() => {
     if (!clientId) return [];
-    return itemsForMonth(data.workItems, clientId, yearMonth).sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return a.title.localeCompare(b.title);
-    });
+    return taskRootsForMonth(data.workItems, clientId, yearMonth);
   }, [data.workItems, clientId, yearMonth]);
 
   const entriesThisMonth = useMemo(() => {
@@ -157,6 +167,7 @@ export function ClientWorkspace() {
               type="button"
               className="btn btn-primary"
               onClick={() => {
+                setParentTask(null);
                 setEditing(null);
                 setModalOpen(true);
               }}
@@ -177,6 +188,7 @@ export function ClientWorkspace() {
 
       <div className="card">
         <h2 style={{ marginBottom: "0.75rem" }}>Work this month</h2>
+        {actionError && <p role="alert">{actionError}</p>}
         {items.length === 0 ? (
           <p className="muted">No items for this month. Add one or pick another month.</p>
         ) : (
@@ -184,27 +196,29 @@ export function ClientWorkspace() {
             <table className="data">
               <thead>
                 <tr>
-                  {staff && <th>Pri</th>}
-                  <th>Title</th>
+                  <th style={{minWidth:"220px"}}>Task</th>
                   {staff && <th>Assigned</th>}
                   <th>Due</th>
                   <th>Status</th>
-                  {staff && <th>Scope</th>}
                   {staff && <><th>Est</th><th>Actual</th></>}
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {items.map((w) => {
+                {items.flatMap(root => [root, ...(expanded.has(root.id) ? subtasksFor(root,data.workItems) : [])]).map((w) => {
                   const logged = hoursLoggedForWorkItem(w.id, data.timeEntries);
-                  const display = effectiveActualHours(w, data.timeEntries);
+                  const summary = taskSummary(w, data.workItems, data.timeEntries);
+                  const display = summary.actual;
+                  const hasChildren = summary.total > 0;
                   const running =
                     activeTimer?.workItemId === w.id && activeTimer.userId === sessionUserId;
                   return (
                     <tr key={w.id}>
-                      {staff && <td>{w.priority}</td>}
-                      <td>
-                        <strong>{w.title}</strong>
+                      <td style={{minWidth:"220px",paddingLeft:w.parentId ? "1.5rem" : undefined}}>
+                        {hasChildren && <button type="button" className="btn btn-ghost" aria-label={`${expanded.has(w.id) ? "Collapse" : "Expand"} ${w.title}`} aria-expanded={expanded.has(w.id)} onClick={() => setExpanded(old => { const next = new Set(old); next.has(w.id) ? next.delete(w.id) : next.add(w.id); return next; })}>{expanded.has(w.id) ? "▾" : "▸"}</button>}
+                        <strong>{w.parentId ? "↳ " : ""}{w.title}</strong>
+                        {hasChildren && <div className="muted">{summary.done} of {summary.total} complete</div>}
+                        {w.parentId && w.yearMonth !== yearMonth && <div className="muted">Scheduled {labelYearMonth(w.yearMonth)}</div>}
                         {w.description ? (
                           <div className="muted" style={{ fontSize: "0.8rem" }}>
                             {w.description}
@@ -213,21 +227,20 @@ export function ClientWorkspace() {
                       </td>
                       {staff && <td>{data.users.find(u => u.id === w.assignedUserId)?.name ?? "Unassigned"}</td>}
                       <td className="muted">{w.dueDate ? w.dueDate.slice(0, 10) : "—"}</td>
-                      <td>{STATUS_LABELS[w.status]}</td>
-                      {staff && <td>{SCOPE_LABELS[w.scopeCategory]}</td>}
-                      {staff && <><td>{w.estimatedHours}</td>
+                      <td>{STATUS_LABELS[summary.status]}</td>
+                      {staff && <><td>{summary.estimated}</td>
                       <td>
                         {display.toFixed(2)}h
                         {logged > 0 && (
                           <span className="muted" style={{ fontSize: "0.75rem", display: "block" }}>
-                            from timer
+                            {hasChildren ? "includes subtasks" : "from timer"}
                           </span>
                         )}
                       </td></>}
-                      <td style={{ whiteSpace: "nowrap" }}>
+                      <td style={{ whiteSpace: "normal", width:"250px", minWidth:"200px" }}>
                         {canEdit && staff && (
                           <>
-                            {running ? (
+                            {!hasChildren && (running ? (
                               <span className="badge badge-warn">Running</span>
                             ) : (
                               <button
@@ -238,32 +251,40 @@ export function ClientWorkspace() {
                               >
                                 Start timer
                               </button>
-                            )}
-                            <button
+                            ))}
+                            {!hasChildren && <button
                               type="button"
                               className="btn btn-ghost"
                               style={{ padding: "0.25rem 0.4rem" }}
                               onClick={() => setManualFor(w)}
                             >
                               Log time
-                            </button>
+                            </button>}
                             <button
                               type="button"
                               className="btn btn-ghost"
                               style={{ padding: "0.25rem 0.4rem" }}
                               onClick={() => {
+                                setParentTask(w.parentId ? data.workItems.find(p => p.id === w.parentId) ?? null : null);
                                 setEditing(w);
                                 setModalOpen(true);
                               }}
                             >
                               Edit
                             </button>
+                            {!w.parentId && <button type="button" className="btn btn-ghost" onClick={() => { setEditing(null); setParentTask(w); setExpanded(old => new Set([...old,w.id])); setModalOpen(true); }}>Add subtask</button>}
+                            {!hasChildren && <button type="button" className="btn btn-ghost" disabled={changingStatus !== null} onClick={async () => {
+                              setChangingStatus(w.id); setActionError("");
+                              try { await updateWorkItem(w.id,{status:w.status === "done" ? "planned" : "done",updatedAt:w.updatedAt}); }
+                              catch(e) { setActionError(e instanceof Error ? e.message : "Could not update completion."); }
+                              finally { setChangingStatus(null); }
+                            }}>{w.status === "done" ? "Reopen" : "Mark complete"}</button>}
                             {(!cloud || isOwnerOrAdmin(currentUser)) && <button
                               type="button"
                               className="btn btn-danger"
                               style={{ padding: "0.25rem 0.4rem" }}
                               onClick={() => {
-                                if (confirm(`Delete “${w.title}”?`)) void Promise.resolve(deleteWorkItem(w.id)).catch(() => {});
+                                if (confirm(`Delete “${w.title}”?`)) void Promise.resolve(deleteWorkItem(w.id)).catch(e => setActionError(e instanceof Error ? e.message : "Could not delete task."));
                               }}
                             >
                               Delete
@@ -376,10 +397,11 @@ export function ClientWorkspace() {
           setEditing(null);
         }}
         initial={editing}
+        parentTask={parentTask}
         clientId={client.id}
         clientName={client.name}
-        allowSaveAsTemplate={!!canEdit && staff}
-        defaultYearMonth={yearMonth}
+        allowSaveAsTemplate={!!canEdit && staff && !parentTask && !(editing && subtasksFor(editing,data.workItems).length)}
+        defaultYearMonth={parentTask?.yearMonth ?? yearMonth}
         assignableUsers={assignableUsers}
         onSave={async (payload, opts) => {
           if (editing) await updateWorkItem(editing.id, { ...payload, updatedAt: editing.updatedAt });

@@ -35,7 +35,7 @@ export function usedHoursForMonth(
 
 export function committedHoursForMonth(items: WorkItem[], clientId: string, yearMonth: string, entries: TimeEntry[] = []): number {
   return itemsForMonth(items, clientId, yearMonth)
-    .filter((w) => ACTIVE.includes(w.status))
+    .filter((w) => ACTIVE.includes(w.status) && !items.some(child => child.parentId === w.id))
     .reduce((s, w) => s + Math.max(0, (w.estimatedHours || 0) - effectiveActualHours(w, entries)), 0);
 }
 
@@ -45,7 +45,7 @@ export function backlogHoursNeedingApproval(
   yearMonth: string
 ): number {
   return itemsForMonth(items, clientId, yearMonth)
-    .filter((w) => w.status === "backlog" && w.scopeCategory === "needs_approval")
+    .filter((w) => w.status === "backlog" && w.scopeCategory === "needs_approval" && !items.some(child => child.parentId === w.id))
     .reduce((s, w) => s + (w.estimatedHours || 0), 0);
 }
 

@@ -11,6 +11,7 @@ for (const file of [
   "20250201000000_profiles.sql",
   "20260923000000_shared_workspace.sql",
   "20260930000000_actual_hours_override.sql",
+  "20260930010000_subtasks.sql",
 ])
   await db.exec(
     (

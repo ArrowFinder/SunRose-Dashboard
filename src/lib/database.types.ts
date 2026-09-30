@@ -23,6 +23,7 @@ export type ClientRow = {
   created_at: string;
 };
 export type WorkRow = {
+  parent_id: string | null;
   id: string;
   client_id: string;
   year_month: string;
@@ -75,6 +76,9 @@ export type SharedView = {
     title: string;
     status: WorkItem["status"];
     dueDate: string | null;
+    parentId: string | null;
+    completedSubtasks: number;
+    totalSubtasks: number;
   }[];
 };
 export interface Database {
@@ -95,7 +99,7 @@ export interface Database {
     Views: Record<string, never>;
     Functions: {
       correct_time_entry: { Args: { entry_id: string; corrected_minutes: number; expected_minutes: number; expected_task_minutes: number }; Returns: undefined };
-      member_client_view: { Args: Record<string, never>; Returns: { client: { id: string; name: string; color: string | null; createdAt: string }; items: { id: string; clientId: string; title: string; status: WorkItem["status"]; dueDate: string | null; yearMonth: string }[] } | null };
+      member_client_view: { Args: Record<string, never>; Returns: { client: { id: string; name: string; color: string | null; createdAt: string }; items: { id: string; clientId: string; title: string; status: WorkItem["status"]; dueDate: string | null; yearMonth: string; parentId: string | null; completedSubtasks: number; totalSubtasks: number }[] } | null };
       workspace_revision: { Args: Record<string, never>; Returns: number | null };
       start_work_timer: {
         Args: { task_id: string; request_id: string };

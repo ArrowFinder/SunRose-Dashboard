@@ -3,6 +3,7 @@ import type { WorkItem } from "../lib/types";
 import type { User, TimeEntry } from "../lib/types";
 import { useAppState } from "../context/AppStateContext";
 import { effectiveActualHours, minutesLoggedForWorkItem } from "../lib/hours";
+import { taskSummary, subtasksFor } from "../lib/taskTree";
 import { currentYearMonth } from "../lib/month";
 
 export type WorkItemSaveOptions = {
@@ -16,6 +17,7 @@ type Props = {
   onClose: () => void;
   onSave: (item: Omit<WorkItem, "id" | "createdAt" | "updatedAt">, opts?: WorkItemSaveOptions) => void | Promise<void>;
   initial?: WorkItem | null;
+  parentTask?: WorkItem | null;
   clientId: string;
   clientName: string;
   /** Show “save as template for this client” (internal staff only) */
@@ -29,6 +31,7 @@ export function WorkItemModal({
   onClose,
   onSave,
   initial,
+  parentTask,
   clientId,
   clientName,
   allowSaveAsTemplate,
@@ -36,14 +39,15 @@ export function WorkItemModal({
   assignableUsers,
 }: Props) {
   const { currentUser, data, correctTimeEntry } = useAppState();
-  const canOverride = currentUser?.role === "owner" || currentUser?.role === "admin";
+  const hasChildren = initial ? subtasksFor(initial,data.workItems).length > 0 : false;
+  const canOverride = (currentUser?.role === "owner" || currentUser?.role === "admin") && !hasChildren;
   const [showCorrectionWarning, setShowCorrectionWarning] = useState(false);
   const [overrideEditing, setOverrideEditing] = useState(false);
   const [selectedEntryId, setSelectedEntryId] = useState("");
   const [correctionEntries, setCorrectionEntries] = useState<TimeEntry[]>([]);
   const [correctionSaved, setCorrectionSaved] = useState(false);
   const taskEntries = data.timeEntries.filter(e => e.workItemId === initial?.id && !e.voidedAt).sort((a,b) => b.startedAt.localeCompare(a.startedAt));
-  const displayedHours = initial ? effectiveActualHours(initial, data.timeEntries) : 0;
+  const displayedHours = initial ? taskSummary(initial, data.workItems, data.timeEntries).actual : 0;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientVisible, setClientVisible] = useState(false);
@@ -109,6 +113,7 @@ export function WorkItemModal({
     if (overrideEditing) { setError("Apply or cancel the time correction before saving the task."); return; }
     const payload: Omit<WorkItem, "id" | "createdAt" | "updatedAt"> = {
       clientId,
+      parentId: initial?.parentId ?? parentTask?.id ?? null,
       clientVisible,
       yearMonth: yearMonth || currentYearMonth(),
       title: title.trim(),
@@ -143,7 +148,8 @@ export function WorkItemModal({
   return (
     <div className="modal-backdrop" role="dialog" aria-modal onClick={() => { if (!busy) onClose(); }}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{initial ? "Edit work item" : "Add work item"}</h2>
+        <h2>{initial ? "Edit task" : parentTask ? "Add subtask" : "Add work item"}</h2>
+        {parentTask && <p className="muted">Part of: <strong>{parentTask.title}</strong></p>}
         <form onSubmit={submit}>
           {error && <p role="alert">{error}</p>}
           <fieldset disabled={busy} style={{border:0,padding:0,margin:0}}>
@@ -217,7 +223,8 @@ export function WorkItemModal({
                 type="number"
                 min={0}
                 step={0.25}
-                value={estimatedHours}
+                readOnly={hasChildren}
+                value={hasChildren && initial ? taskSummary(initial,data.workItems,data.timeEntries).estimated : estimatedHours}
                 onChange={(e) => setEstimatedHours(Number(e.target.value))}
               />
             </div>
@@ -238,7 +245,7 @@ export function WorkItemModal({
                 onChange={(e) => { setActualHours(e.target.value === "" ? NaN : Number(e.target.value));  }}
                 title={canOverride ? "Click to override clock tracking" : "Only an owner or admin can override clock tracking"}
               />
-              <p className="muted" style={{fontSize:"0.8rem"}}>From saved clock time. Only an owner/admin can correct a time session.</p>
+              <p className="muted" style={{fontSize:"0.8rem"}}>{hasChildren ? "Combined subtask hours, including earlier time recorded on this parent. Correct subtask time within that subtask." : "From saved clock time. Only an owner/admin can correct a time session."}</p>
               {showCorrectionWarning && <div role="alertdialog" aria-label="Override clock tracking" className="card">
                 <p><strong>This will override the clock tracking</strong> for the selected time session on this task. Future clock time will keep adding normally.</p>
                 <button type="button" className="btn btn-primary" onClick={() => { setActualHours(displayedHours); setCorrectionEntries(taskEntries); setOverrideEditing(true); setCorrectionSaved(false); setShowCorrectionWarning(false); }}>Continue with correction</button>
@@ -257,7 +264,7 @@ export function WorkItemModal({
             </div>
           </div>
 
-          <label><input type="checkbox" checked={clientVisible} onChange={e => setClientVisible(e.target.checked)} /> Show this task in the client view</label>
+          <label><input type="checkbox" checked={clientVisible} onChange={e => setClientVisible(e.target.checked)} /> {parentTask ? "Share this subtask (its parent must also be shared)" : "Show this task in the client view"}</label>
           {allowSaveAsTemplate && (
             <div
               className="card"

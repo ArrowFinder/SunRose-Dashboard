@@ -306,6 +306,11 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addWorkItem = useCallback((item: Omit<WorkItem, "id" | "createdAt" | "updatedAt">) => {
+    if (item.parentId) {
+      const parent = data.workItems.find(w => w.id === item.parentId);
+      if (!parent || parent.clientId !== item.clientId || parent.parentId) throw new Error("Choose a top-level parent from the same client.");
+      if (activeTimer?.workItemId === parent.id) throw new Error("Stop the parent clock before adding subtasks.");
+    }
     const now = new Date().toISOString();
     const w: WorkItem = {
       ...item,
@@ -318,9 +323,11 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
     };
     setData((d) => ({ ...d, workItems: [...d.workItems, w] }));
     return w;
-  }, []);
+  }, [data.workItems, activeTimer]);
 
   const updateWorkItem = useCallback((id: string, patch: Partial<WorkItem>) => {
+    const existing = data.workItems.find(w => w.id === id);
+    if ("parentId" in patch && (patch.parentId ?? null) !== (existing?.parentId ?? null)) throw new Error("A task cannot be moved to another parent.");
     const now = new Date().toISOString();
     setData((d) => ({
       ...d,
@@ -328,15 +335,16 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
         w.id === id ? { ...w, ...patch, updatedAt: now } : w
       ),
     }));
-  }, []);
+  }, [data.workItems]);
 
   const deleteWorkItem = useCallback((id: string) => {
+    if (data.workItems.some(w => w.parentId === id)) throw new Error("Remove subtasks before deleting their parent.");
     setData((d) => ({
       ...d,
       workItems: d.workItems.filter((w) => w.id !== id),
       timeEntries: d.timeEntries.filter((e) => e.workItemId !== id),
     }));
-  }, []);
+  }, [data.workItems]);
 
   const addUser = useCallback(
     async (name: string, role: UserRole, clientId?: string, pin?: string) => {
@@ -418,6 +426,7 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addTimeEntryManual = useCallback((e: Omit<TimeEntry, "id" | "createdAt">) => {
+    if (data.workItems.some(w => w.parentId === e.workItemId)) throw new Error("Track time on a subtask instead of its parent.");
     const row: TimeEntry = {
       ...e,
       id: uid(),
@@ -425,7 +434,7 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
     };
     setData((d) => ({ ...d, timeEntries: [...d.timeEntries, row] }));
     return row;
-  }, []);
+  }, [data.workItems]);
 
   const deleteTimeEntry = useCallback((id: string) => {
     setData((d) => ({
@@ -436,6 +445,7 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
 
   const startTimer = useCallback(
     async (workItemId: string) => {
+      if (data.workItems.some(w => w.parentId === workItemId)) throw new Error("Track time on a subtask instead of its parent.");
       if (!effectiveSessionUserId) return;
       const prev = await getActiveTimer(effectiveSessionUserId);
       if (prev?.workItemId) {
@@ -461,7 +471,7 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
       await setActiveTimer(timer);
       setActiveTimerState(timer);
     },
-    [effectiveSessionUserId]
+    [effectiveSessionUserId, data.workItems]
   );
 
   const stopTimer = useCallback(async () => {

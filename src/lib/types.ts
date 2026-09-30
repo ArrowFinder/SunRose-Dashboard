@@ -21,6 +21,9 @@ export interface Client {
 }
 
 export interface WorkItem {
+  parentId?: string | null;
+  completedSubtasks?: number;
+  totalSubtasks?: number;
   id: string;
   clientId: string;
   yearMonth: string;

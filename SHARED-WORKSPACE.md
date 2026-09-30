@@ -52,3 +52,13 @@ Fake accounts: `owner@example.test`, `employee@example.test`, `client@example.te
 - Employees can work across agency clients. This milestone separates clients from each other; it does not restrict each employee to specific clients.
 - Existing logged time takes precedence over legacy manual task totals.
 - Monitor storage and transfer against the actual free-plan limits. Audit rows and timer-request history grow over time; establish retention without deleting required time history.
+
+## Parent tasks and subtasks
+
+Apply `20260930010000_subtasks.sql` after the prior migrations. Existing tasks retain their data and start without a parent. A subtask belongs to one top-level task in the same client; changing its parent, deeper nesting, and deleting a parent with remaining children are rejected by the database.
+
+The task list expands parents into their subtasks. Each subtask has an independent assignment, month, due date, completion control, and timer. Parent progress and estimates are calculated from children; actual hours also include earlier time recorded directly against the parent. Retainer usage counts each entry once, and committed estimates exclude the parent when children exist. A parent is included in a month when any child belongs to that month. The calendar can include subtask deadlines and links to the appropriate parent/month.
+
+Stop a running parent timer before adding its first subtask. Once children exist, new time must be recorded on a subtask; existing parent time and its audit history remain. Subtasks are private by default. A shared parent exposes aggregate progress; child details require both parent and child to be shared. Signed-in clients use the same restricted projection. No internal descriptions or time records are added to client responses.
+
+Templates still create individual tasks; whole-project templates are a later extension. Browser acceptance used the local Supabase adapter, including a parent, two assigned subtasks, completion rollup, and client privacy. Automated database and calculation tests cover cross-client links, nesting, deletion restrictions, timers, historical time, cross-month work, privacy, and migration reruns. Live concurrent-user acceptance remains recommended before onboarding the full team.
