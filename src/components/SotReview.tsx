@@ -54,7 +54,7 @@ export function SotReview() {
  async function decide(s:SotSuggestion,add:boolean){await run(async()=>{
   const {error}=await getSupabase().rpc(add?'sot_accept':'sot_dismiss',{suggestion_id:s.id});if(error)throw new Error(error.message);
   await load();await refresh?.();
-  setMessage(add?(s.kind==='client'?'Client added. You can now add their suggested tasks.':s.kind==='task'?'Task added and assigned to you. Owners and Supervisors have been notified.':'Task updated.'):'Suggestion deleted. Your email was not changed.');
+  setMessage(add?(s.kind==='client'?'Client added. You can now add their suggested tasks.':s.kind==='task'?'Task is on the task list. Any matching existing task was kept without creating a duplicate.':'Task updated.'):'Suggestion deleted. Your email was not changed.');
  },s.id);}
  const sorted=[...suggestions].sort((a,b)=>Number(b.kind==='client')-Number(a.kind==='client'));
  return <section className="card sot-panel" aria-label="SOT — Source of Truth">
@@ -85,6 +85,7 @@ export function SotReview() {
    <p className="muted">Client: {s.payload.client_name}{s.kind!=='client'&&<> · {s.kind==='task'?`Assigned to: ${currentUser?.name}`:'Existing assignee stays unchanged'} · {s.payload.due_date?`Due: ${s.payload.due_date}`:'No deadline specified'}{s.payload.estimated_hours!==null?` · Estimated: ${s.payload.estimated_hours}h`:' · No hours estimate supplied'}</>}</p>
    {s.kind==='client'&&<p className="muted">{s.payload.contact_email} · Retainer starts at 0 hours until configured.</p>}
    {s.kind==='update'&&<p className="muted">The description above will be appended to the task. Tracked hours remain unchanged.</p>}
+   {s.payload.task_id && data.workItems.some(t=>t.id===s.payload.task_id) && (()=>{const t=data.workItems.find(t=>t.id===s.payload.task_id)!;return <p><Link to={`/client/${t.clientId}?month=${t.yearMonth}&task=${t.id}`}>Open existing task</Link></p>;})()}
    <details><summary>Why SOT suggested this</summary><blockquote>{s.evidence}</blockquote><p>{s.source_subject}</p>{connection&&<a href={`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(connection.email)}#all/${encodeURIComponent(s.source_thread)}`} target="_blank" rel="noreferrer">Open source email</a>}</details>
    <div className="row" style={{marginTop:'1rem'}}>
     <button className="btn btn-primary" disabled={!!busy} onClick={()=>void decide(s,true)}>{busy===s.id?'Saving…':s.kind==='complete'?'Mark complete':s.kind==='update'?'Apply update':'Add'}</button>

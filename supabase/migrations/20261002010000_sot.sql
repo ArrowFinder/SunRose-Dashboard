@@ -173,7 +173,7 @@ begin
   else
    select * into existing from public.work_items where id=(s.payload->>'task_id')::uuid and client_id=cid for update;
    if not found then raise exception 'Task no longer exists'; end if;
-   if existing.updated_at is distinct from (s.payload->>'expected_updated_at')::timestamptz then raise exception 'Task changed since this suggestion. Delete it and scan again.'; end if;
+   if existing.updated_at is distinct from (s.payload->>'expected_updated_at')::timestamptz then raise exception 'Task changed since this suggestion. Open the existing task to review it before dismissing this suggestion.'; end if;
    if exists(select 1 from public.work_items where parent_id=existing.id) then raise exception 'Update individual subtasks instead'; end if;
    rid:=existing.id;
    if s.kind='complete' then
