@@ -27,6 +27,7 @@ type AuthState = {
   clientMemberClientId: string | null;
   loading: boolean;
   error: string | null;
+  passwordRecovery: boolean;
 };
 
 type AuthContextValue = AuthState & {
@@ -34,6 +35,7 @@ type AuthContextValue = AuthState & {
   signUp: (email: string, password: string, displayName?: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  finishPasswordRecovery: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -94,6 +96,7 @@ async function fetchProfileAndClient(
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const configured = isSupabaseConfigured();
+  const [passwordRecovery, setPasswordRecovery] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("type") === "recovery");
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<SupabaseProfile | null>(null);
@@ -170,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Supabase holds an auth lock while notifying listeners. Fetch the profile
       // after the callback returns, otherwise token refresh can deadlock.
       const { data } = supabase.auth.onAuthStateChange((_event, newSession) => {
+        if (_event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
         setSession(newSession);
         setUser(newSession?.user ?? null);
         if (!newSession?.user) {
@@ -238,6 +242,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       isConfigured: configured,
+      passwordRecovery,
+      finishPasswordRecovery: () => setPasswordRecovery(false),
       session,
       user,
       profile,
@@ -251,6 +257,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }),
     [
       configured,
+      passwordRecovery,
       session,
       user,
       profile,
