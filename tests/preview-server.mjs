@@ -12,6 +12,7 @@ for (const file of [
   "20260923000000_shared_workspace.sql",
   "20260930000000_actual_hours_override.sql",
   "20260930010000_subtasks.sql",
+  "20261001000000_account_names_and_roles.sql",
 ])
   await db.exec(
     (
@@ -31,7 +32,7 @@ const users = ["owner", "employee", "client"].map((name, i) => ({
   created_at: new Date().toISOString(),
 }));
 for (const u of users)
-  await db.query("insert into auth.users(id,email) values($1,$2)", [
+  await db.query("insert into auth.users(id,email,raw_user_meta_data) values($1,$2,jsonb_build_object('display_name','Preview user'))", [
     u.id,
     u.email,
   ]);
@@ -58,6 +59,7 @@ const rpc = new Set([
   "correct_work_timer",
   "correct_time_entry",
   "manage_member",
+  "update_my_name",
   "void_time_entry",
   "shared_client_view",
   "submit_client_request",
@@ -249,8 +251,9 @@ const server = http.createServer((req, res) => {
       });
   });
 });
-server.listen(54329, "127.0.0.1", () =>
+const previewPort = Number(process.env.PREVIEW_PORT || 54329);
+server.listen(previewPort, "127.0.0.1", () =>
   console.log(
-    "Local test API: http://127.0.0.1:54329. Accounts: owner@example.test, employee@example.test, client@example.test. Password: sunrose-preview-only. In-memory sample data only.",
+    `Local test API: http://127.0.0.1:${previewPort}. Accounts: owner@example.test, employee@example.test, client@example.test. Password: sunrose-preview-only. In-memory sample data only.`,
   ),
 );

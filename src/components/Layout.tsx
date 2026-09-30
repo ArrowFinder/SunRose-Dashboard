@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
+import { AccountName } from "./AccountName";
 import { TimerBar } from "./TimerBar";
 import { isInternalUser } from "../lib/permissions";
 
@@ -50,6 +51,7 @@ export function Layout() {
             </button>
           </nav>
         </header>
+        {cloud && <AccountName />}
         {cloud && <p role="status">{saving ? "Saving…" : "Shared workspace · updates every 30 seconds"} <button className="btn btn-ghost" disabled={saving} onClick={() => void refresh?.()}>Refresh</button></p>}
         {syncError && <p role="alert" className="card">{syncError}</p>}
         <Outlet />

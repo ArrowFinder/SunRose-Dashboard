@@ -32,7 +32,7 @@ type AuthState = {
 
 type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, displayName?: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   finishPasswordRecovery: () => void;
@@ -205,14 +205,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [configured, loadSessionAndProfile]);
 
   const signUp = useCallback(
-    async (email: string, password: string, displayName?: string) => {
+    async (email: string, password: string, displayName: string) => {
       if (!configured) return { error: "Supabase not configured" };
+      if (!displayName.trim() || displayName.trim().length > 100) return { error: "Enter your name (up to 100 characters)." };
       const supabase = getSupabase();
       const { error: err } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
-          data: displayName ? { display_name: displayName } : undefined,
+          data: { display_name: displayName.trim() },
         },
       });
       if (err) return { error: err.message };

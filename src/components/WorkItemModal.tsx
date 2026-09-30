@@ -4,6 +4,7 @@ import type { User, TimeEntry } from "../lib/types";
 import { useAppState } from "../context/AppStateContext";
 import { effectiveActualHours, minutesLoggedForWorkItem } from "../lib/hours";
 import { taskSummary, subtasksFor } from "../lib/taskTree";
+import { isOwnerOrAdmin } from "../lib/permissions";
 import { currentYearMonth } from "../lib/month";
 
 export type WorkItemSaveOptions = {
@@ -264,7 +265,8 @@ export function WorkItemModal({
             </div>
           </div>
 
-          <label><input type="checkbox" checked={clientVisible} onChange={e => setClientVisible(e.target.checked)} /> {parentTask ? "Share this subtask (its parent must also be shared)" : "Show this task in the client view"}</label>
+          <label><input type="checkbox" disabled={!isOwnerOrAdmin(currentUser)} checked={clientVisible} onChange={e => setClientVisible(e.target.checked)} /> {parentTask ? "Share this subtask (its parent must also be shared)" : "Show this task in the client view"}</label>
+          {!isOwnerOrAdmin(currentUser) && <p className="muted">An owner or admin controls what clients can see.</p>}
           {allowSaveAsTemplate && (
             <div
               className="card"
