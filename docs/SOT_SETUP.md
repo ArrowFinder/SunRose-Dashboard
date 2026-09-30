@@ -37,6 +37,7 @@ The frontend is GitHub Pages; secrets and external API requests run only in a Su
 Apply the new migrations in order, with a commit between them:
 1. `20261002000000_supervisor_role.sql`
 2. `20261002010000_sot.sql`
+3. `20261003000000_sot_client_identity.sql`
 
 Do not replay old migrations after new ones; earlier function definitions would overwrite role checks. The SOT migration is additive and does not remove existing business records.
 
@@ -66,3 +67,11 @@ Raw email bodies and access tokens are not stored in the application database. S
 - `node --import tsx tests/sot-live-smoke.ts`: optional paid API smoke check using fabricated email and the local key. Never runs in normal tests.
 
 Before live launch: connect Sierra's mailbox with her consent; confirm the connected address; complete a small initial batch; compare suggestions against source emails; approve one client and one task; verify Owner/Supervisor notifications; test disconnect/reconnect. OAuth and actual Gmail access cannot be end-to-end tested until her Google setup is complete. No live mailbox scan or background scheduler is claimed by the automated tests.
+
+## Client checklist and websites
+
+Every client suggestion shows business name, real email contact, source evidence of an agency-client relationship, the existing-client check, and identity resolution. Add is blocked until required checks are complete. A missing relationship quotation can be explicitly confirmed by the reviewer; this confirmation is recorded in the suggestion. Contacts can belong to multiple businesses. Ambiguous suggestions require selecting an existing client or confirming a separate business; the system never picks a business solely because its contact email matches. Confirmed aliases, contacts and websites are included in later analysis context and can be viewed on the internal client workspace.
+
+Website lookup is optional and on demand through **Find website**. The editable public query defaults to business name, city and business type. Only the submitted query is sent to web search, never the underlying email text. One hosted web search is allowed per request, with a separate hard ceiling of 40 lookups per UTC month for the whole workspace. The result must match an actually consulted source (www/non-www equivalents allowed) and still requires **Use this website** before acceptance saves it. Search results are evidence for review, not guaranteed identity verification. No result does not block adding a client. Existing approved websites are not automatically overwritten.
+
+The live website smoke check uses only the public query “OpenAI San Francisco artificial intelligence”; it does not involve Sierra's mailbox. Run `node --import tsx tests/sot-website-live-smoke.ts` only when intentionally testing the paid API.

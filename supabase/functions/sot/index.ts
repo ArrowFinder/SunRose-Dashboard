@@ -1,3 +1,4 @@
+import { clientChecklist, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
 import { addresses, agencyRelated, bounded, gmailQuery, instructions, proposalSchema, STAFF_ROLES, STARTING_MAILBOX, validProposal, type Proposal } from './core.ts';
 const env = (name: string) => Deno.env.get(name) || '';
@@ -54,7 +55,10 @@ async function scan(uid:string) {
   const started=c.scan_started_at||new Date().toISOString();
   const q=new URLSearchParams({q:gmailQuery(c.email,Date.parse(started)),maxResults:'3'});if(c.scan_cursor) q.set('pageToken',c.scan_cursor);
   const list=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+q,{headers});
-  const clients=checked(await db.from('clients').select('id,name').order('created_at').limit(300))||[];
+  const clientRows=checked(await db.from('clients').select('id,name').order('created_at').limit(1000))||[];
+  const contactRows=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
+  const profiles=checked(await db.from('sot_client_profiles').select('client_id,aliases,location,business_type,website_url').limit(1000))||[];
+  const clients=clientRows.map((c:any)=>({...c,...profiles.find((p:any)=>p.client_id===c.id),emails:contactRows.filter((r:any)=>r.client_id===c.id).map((r:any)=>r.email)}));
   const tasks=checked(await db.from('work_items').select('id,client_id,parent_id,title,status,due_date,updated_at').order('updated_at',{ascending:false}).limit(300))||[];
   let made=0;
   for(const ref of list.threads||[]) {
@@ -65,17 +69,18 @@ async function scan(uid:string) {
     return {id:m.id,messageId:h('message-id')||m.id,date:new Date(Number(m.internalDate)).toISOString(),from:h('from'),to:h('to'),cc:h('cc'),subject:h('subject'),body:bounded(body(m.payload||{}),9000)};
    }).filter((m:any)=>agencyRelated(m,c.email)).slice(-12);
    if(!messages.length) continue;
-   const fingerprint=await hash(JSON.stringify(messages));
+   const fingerprint=await hash(JSON.stringify({messages,identities:clients}));
    const cached=checked(await db.from('sot_scan_cache').select('fingerprint').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
    if(cached?.fingerprint===fingerprint) continue;
    const contacts=addresses(messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' '));
    // Bound the full request, including context, rather than silently creating an expensive scan.
-   const context={clients:clients.slice(0,80),tasks:tasks.slice(0,60)};
+   const relevantClients=[...clients].sort((a:any,b:any)=>Number(b.emails.some((e:string)=>contacts.includes(e)))-Number(a.emails.some((e:string)=>contacts.includes(e))));
+   const context={clients:relevantClients.slice(0,80),tasks:tasks.slice(0,60)};
    let selected=messages;
    const inputMessages=(items:any[])=>items.map(({id,messageId,...rest})=>({...rest,source_message_id:id}));
    let input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});
    while(new TextEncoder().encode(input).length>16000 && selected.length>1) {selected=selected.slice(1);input=JSON.stringify({context,messages:inputMessages(selected)});}
-   if(new TextEncoder().encode(input).length>16000) {context.tasks=[];context.clients=clients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({context,messages:inputMessages(selected)});}
+   if(new TextEncoder().encode(input).length>16000) {context.tasks=[];context.clients=relevantClients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({context,messages:inputMessages(selected)});}
    if(new TextEncoder().encode(input).length>16000) throw new Error('A conversation is too large to process safely. Contact the owner.');
    if(!checked(await db.rpc('sot_reserve_call'))) throw new Error('SOT reached its monthly scan allowance. Saved suggestions remain available; the scan can resume next month.');
    const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions,input,max_output_tokens:2400,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:proposalSchema}}})});
@@ -92,7 +97,9 @@ async function scan(uid:string) {
     if(p.parent_id && !tasks.some((t:any)=>t.id===p.parent_id&&!t.parent_id&&t.client_id===p.client_id)) continue;
     const source=selected.find((m:any)=>m.id===p.source_message_id);
     const key=await hash(p.kind==='client'?'client:'+p.client_name.trim().toLowerCase():[p.kind,source.messageId,p.title.trim().toLowerCase(),p.task_id||''].join(':'));
-    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
+    const checklist=clientChecklist(p,clients,source.body);
+    if(!p.client_id && checklist.matched_client_id && checklist.identity_resolved) p.client_id=checklist.matched_client_id;
+    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
    }
    checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:rows}));
    made+=rows.length;
@@ -133,7 +140,7 @@ Deno.serve(async req=>{
   if(!bearer) return json({error:'Sign in first'},401);
   const {data:{user},error}=await db.auth.getUser(bearer);if(error||!user) return json({error:'Sign in again'},401);
   await staff(user.id);
-  const {action}=await req.json();
+  const {action,suggestionId,query}=await req.json();
   if(action==='status') return json({configured:configured(),startingMailbox:STARTING_MAILBOX});
   if(action==='connect') {
    if(!configured()) return json({error:'Sierra’s Google connection setup is still needed.'},503);
@@ -141,6 +148,17 @@ Deno.serve(async req=>{
    checked(await db.from('sot_oauth_states').delete().eq('user_id',user.id));
    checked(await db.from('sot_oauth_states').insert({state_hash:await hash(state),user_id:user.id,expires_at:new Date(Date.now()+600000).toISOString()}));
    return json({url:'https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({client_id:env('GOOGLE_CLIENT_ID'),redirect_uri:callback,response_type:'code',scope,access_type:'offline',prompt:'consent select_account',state})});
+  }
+  if(action==='find_website') {
+   const s=checked(await db.from('sot_suggestions').select('id,kind,payload,updated_at').eq('id',suggestionId).eq('user_id',user.id).eq('status','pending').single());
+   if(!s||s.kind!=='client') throw new Error('Pending client suggestion required.');
+   if(typeof query!=='string'||query.trim().length<2||query.length>200) throw new Error('Enter a business name and optional city or business type (up to 200 characters).');
+   if(!env('OPENAI_API_KEY')) throw new Error('SOT AI setup is incomplete.');
+   if(!checked(await db.rpc('sot_reserve_website_search'))) throw new Error('The monthly website-search allowance has been reached. You can still add clients without a website.');
+   const result=websiteResult(await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify(websiteRequest(query.trim()))}));
+   const saved=checked(await db.from('sot_suggestions').update({payload:{...s.payload,website_candidate:{...result,query:query.trim()},website_confirmed:false},updated_at:new Date().toISOString()}).eq('id',s.id).eq('user_id',user.id).eq('status','pending').eq('updated_at',s.updated_at).select('id'));
+   if(!saved?.length) throw new Error('The suggestion changed during search. Refresh it before trying again.');
+   return json({found:!!result.url});
   }
   if(action==='disconnect') {
    const lease=crypto.randomUUID();if(!checked(await db.rpc('sot_claim_scan',{uid:user.id,lease}))) throw new Error('Wait for the current scan to finish before disconnecting.');

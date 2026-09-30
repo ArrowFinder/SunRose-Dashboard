@@ -96,12 +96,16 @@ export interface Database {
       time_entries: Table<TimeRow>;
       task_templates: Table<TemplateRow>;
       active_timers: Table<TimerRow>;
+      sot_client_profiles: Table<{client_id:string;aliases:string[];location:string|null;business_type:string|null;website_url:string|null;website_sources:{url:string;title:string}[]}>;
+      sot_client_contacts: Table<{email:string;client_id:string}>;
       sot_connections: Table<SotConnection>;
       sot_suggestions: Table<SotSuggestion>;
       sot_notifications: Table<SotNotification>;
     };
     Views: Record<string, never>;
     Functions: {
+      sot_confirm_identity: { Args: { suggestion_id:string;selected_client:string|null;separate_business:boolean;confirm_relationship:boolean }; Returns: undefined };
+      sot_confirm_website: { Args: { suggestion_id:string;use_website:boolean }; Returns: undefined };
       sot_accept: { Args: { suggestion_id: string }; Returns: string };
       sot_dismiss: { Args: { suggestion_id: string }; Returns: undefined };
       sot_mark_read: { Args: { notification_id: string }; Returns: undefined };

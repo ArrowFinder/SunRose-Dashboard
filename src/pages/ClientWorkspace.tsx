@@ -1,3 +1,4 @@
+import { ClientIdentityCard } from "../components/ClientIdentityCard";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
@@ -133,6 +134,7 @@ export function ClientWorkspace() {
 
   return (
     <div className="stack">
+      {cloud && <ClientIdentityCard clientId={client.id}/>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
         <Link to="/">← Overview</Link>
         <h1 style={{ flex: "1 1 auto", margin: 0 }}>{client.name}</h1>

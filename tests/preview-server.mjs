@@ -15,6 +15,7 @@ for (const file of [
   "20261001000000_account_names_and_roles.sql",
   "20261002000000_supervisor_role.sql",
   "20261002010000_sot.sql",
+  "20261003000000_sot_client_identity.sql",
 ])
   await db.exec(
     (
@@ -48,7 +49,12 @@ insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duratio
 await db.exec(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,source_subject,evidence) values
 ('${users[0].id}','client','preview-client','Acme Studio','A client requesting help with their November email campaign.','{"client_name":"Acme Studio","contact_email":"alex@acme.test","client_id":null,"parent_id":null,"task_id":null,"due_date":null,"estimated_hours":null}','preview-thread','November campaign','Please help us put together our November email campaign.'),
 ('${users[0].id}','task','preview-task','Write the November email campaign','Draft the copy and send it to Alex for approval before launch.','{"client_name":"Acme Studio","contact_email":"alex@acme.test","client_id":null,"parent_id":null,"task_id":null,"due_date":"2026-11-10","estimated_hours":null}','preview-thread','November campaign','Could you have a draft ready by November 10?');`);
+await db.exec(`update public.sot_suggestions set payload=payload||'{"checklist":{"business_name":true,"contact_email":true,"relationship_evidence":true,"existing_clients_checked":true,"identity_resolved":true,"ready":true},"relationship_evidence":"Please help us put together our November email campaign.","location":"Portland","business_type":"Design studio","aliases":["Acme"]}'::jsonb;
+insert into public.sot_client_contacts(email,client_id) values('sam@two.test','10000000-0000-4000-8000-000000000001');
+insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values('${users[0].id}','client','preview-shared-contact','Second Business','A contact who also works with Preview client is requesting work for Second Business.','{"client_name":"Second Business","contact_email":"sam@two.test","client_id":null,"parent_id":null,"task_id":null,"due_date":null,"estimated_hours":null,"checklist":{"business_name":true,"contact_email":true,"relationship_evidence":true,"existing_clients_checked":true,"identity_resolved":false,"ready":false,"explanation":"This contact also represents Preview client. Confirm which business this email concerns."}}','second-thread','Please create a campaign for Second Business.');`);
 const allowed = new Set([
+  "sot_client_profiles",
+  "sot_client_contacts",
   "sot_connections",
   "sot_suggestions",
   "sot_notifications",
@@ -67,6 +73,8 @@ const rpc = new Set([
   "stop_work_timer",
   "correct_work_timer",
   "correct_time_entry",
+  "sot_confirm_identity",
+  "sot_confirm_website",
   "sot_accept",
   "sot_dismiss",
   "sot_mark_read",

@@ -1,3 +1,4 @@
+import { SotClientChecklist } from './SotClientChecklist';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAppState } from '../context/AppStateContext';
@@ -84,11 +85,12 @@ export function SotReview() {
    <h3>{s.title}</h3><p>{s.description}</p>
    <p className="muted">Client: {s.payload.client_name}{s.kind!=='client'&&<> · {s.kind==='task'?`Assigned to: ${currentUser?.name}`:'Existing assignee stays unchanged'} · {s.payload.due_date?`Due: ${s.payload.due_date}`:'No deadline specified'}{s.payload.estimated_hours!==null?` · Estimated: ${s.payload.estimated_hours}h`:' · No hours estimate supplied'}</>}</p>
    {s.kind==='client'&&<p className="muted">{s.payload.contact_email} · Retainer starts at 0 hours until configured.</p>}
+   {(s.kind==='client'||s.payload.checklist?.identity_resolved===false)&&<SotClientChecklist suggestion={s} disabled={!!busy} onChanged={load}/>}
    {s.kind==='update'&&<p className="muted">The description above will be appended to the task. Tracked hours remain unchanged.</p>}
    {s.payload.task_id && data.workItems.some(t=>t.id===s.payload.task_id) && (()=>{const t=data.workItems.find(t=>t.id===s.payload.task_id)!;return <p><Link to={`/client/${t.clientId}?month=${t.yearMonth}&task=${t.id}`}>Open existing task</Link></p>;})()}
    <details><summary>Why SOT suggested this</summary><blockquote>{s.evidence}</blockquote><p>{s.source_subject}</p>{connection&&<a href={`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(connection.email)}#all/${encodeURIComponent(s.source_thread)}`} target="_blank" rel="noreferrer">Open source email</a>}</details>
    <div className="row" style={{marginTop:'1rem'}}>
-    <button className="btn btn-primary" disabled={!!busy} onClick={()=>void decide(s,true)}>{busy===s.id?'Saving…':s.kind==='complete'?'Mark complete':s.kind==='update'?'Apply update':'Add'}</button>
+    <button className="btn btn-primary" disabled={!!busy||(s.kind==='client'&&!s.payload.checklist?.ready)||s.payload.checklist?.identity_resolved===false} onClick={()=>void decide(s,true)}>{busy===s.id?'Saving…':s.kind==='complete'?'Mark complete':s.kind==='update'?'Apply update':'Add'}</button>
     <button className="btn btn-danger" disabled={!!busy} onClick={()=>void decide(s,false)}>Delete</button>
    </div>
   </article>)}</div>

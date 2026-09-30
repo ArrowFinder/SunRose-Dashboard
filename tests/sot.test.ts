@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
+import {clientChecklist,publicWebsite,websiteResult} from '../supabase/functions/sot/identity.ts';
 import { agencyRelated, gmailQuery, validProposal, bounded, type Proposal } from '../supabase/functions/sot/core.ts';
 const db=new PGlite();
 await db.exec(`create role authenticated;create role anon;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated,anon;grant execute on function auth.uid() to authenticated,anon;`);
@@ -13,7 +14,8 @@ for(const [i,role] of ['owner','admin','supervisor','employee','client'].entries
  await db.query('update public.profiles set role=$2 where id=$1',[ids[i],role]);
 }
 async function as(uid:string|null,sql:string,args:unknown[]=[]) {await db.exec('begin');try{await db.exec(uid?'set local role authenticated':'set local role anon');await db.query("select set_config('request.jwt.claim.sub',$1,true)",[uid||'']);const r=await db.query(sql,args);await db.exec('commit');return r.rows as any[];}catch(e){await db.exec('rollback');throw e;}}
-const payload={client_name:'Acme Studio',contact_email:'alex@acme.test',client_id:null,parent_id:null,task_id:null,due_date:'2026-11-10',estimated_hours:2};
+const checklist={business_name:true,contact_email:true,relationship_evidence:true,existing_clients_checked:true,identity_resolved:true,ready:true};
+const payload={checklist,client_name:'Acme Studio',contact_email:'alex@acme.test',client_id:null,parent_id:null,task_id:null,due_date:'2026-11-10',estimated_hours:2};
 async function suggestion(uid=ids[3],kind='client',key=crypto.randomUUID(),patch={}){return (await db.query<{id:string}>(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,$2,$3,'November campaign','Write November copy',$4,'thread-1','Please prepare the November campaign') returning id`,[uid,kind,key,JSON.stringify({...payload,...patch})])).rows[0].id;}
 let clientId:string,taskId:string;
 test('supervisor is staff but cannot manage accounts or visibility',async()=>{
@@ -115,4 +117,52 @@ test('later replies replace pending suggestions without recreating dismissed wor
  await db.query('select public.sot_store_thread($1,$2,$3,$4)',[ids[3],'scan-thread','v4','[]']);
  assert.equal((await as(ids[3],"select * from public.sot_suggestions where source_thread='scan-thread' and status='pending'")).length,0);
  await assert.rejects(as(ids[3],"select public.sot_store_thread($1,'x','x','[]')",[ids[3]]),/permission denied/);
+});
+
+test('client checklist blocks missing evidence and supports explicit separate businesses for one contact',async()=>{
+ const shared=await suggestion(ids[3],'client','second-business',{client_name:'Second Business',checklist:{...checklist,identity_resolved:false,ready:false}});
+ await assert.rejects(as(ids[3],'select public.sot_accept($1)',[shared]),/Confirm which business/);
+ await as(ids[3],'select public.sot_confirm_identity($1,null,true,false)',[shared]);
+ const second=(await as(ids[3],'select public.sot_accept($1) as id',[shared]))[0].id;
+ assert.notEqual(second,clientId);
+ const links=await as(ids[3],"select client_id from public.sot_client_contacts where email='alex@acme.test'");
+ assert.equal(links.length,2);
+ const missing=await suggestion(ids[3],'client','missing-evidence',{client_name:'Third Business',checklist:{...checklist,relationship_evidence:false,ready:false}});
+ await assert.rejects(as(ids[3],'select public.sot_accept($1)',[missing]),/checklist/);
+ await assert.rejects(as(ids[0],'select public.sot_confirm_identity($1,null,true,true)',[missing]),/not found/);
+ await as(ids[3],'select public.sot_confirm_identity($1,null,true,true)',[missing]);
+ await as(ids[3],'select public.sot_accept($1)',[missing]);
+});
+test('approved website, aliases and contacts persist; clients cannot read internal identity profiles',async()=>{
+ const s=await suggestion(ids[3],'client','website-profile',{client_name:'Profile Business',aliases:['Profile Co'],location:'Portland',business_type:'Design studio',website_candidate:{url:'https://profile-business.com',sources:[{url:'https://profile-business.com/about',title:'About'}]}});
+ await as(ids[3],'select public.sot_confirm_identity($1,null,true,false)',[s]);
+ await as(ids[3],'select public.sot_confirm_website($1,true)',[s]);
+ const id=(await as(ids[3],'select public.sot_accept($1) as id',[s]))[0].id;
+ const [profile]=await as(ids[3],'select * from public.sot_client_profiles where client_id=$1',[id]);
+ assert.equal(profile.website_url,'https://profile-business.com');assert.deepEqual(profile.aliases,['Profile Co']);
+ assert.equal((await as(ids[4],'select * from public.sot_client_profiles')).length,0);
+ const noWebsite=await suggestion(ids[3],'client','no-website',{client_name:'No Website',contact_email:'new@other.test'});
+ await assert.rejects(as(ids[3],'select public.sot_confirm_website($1,true)',[noWebsite]),/supported website/);
+ await as(ids[3],'select public.sot_accept($1)',[noWebsite]);
+});
+test('checklist matches aliases and detects conflicting contact associations',()=>{
+ const proposal:Proposal={...payload,kind:'client',title:'Acme',description:'Client',source_message_id:'m1',evidence:'Please create our campaign',relationship_evidence:'Please create our campaign'};
+ const clients=[{id:'one',name:'Acme Studio',aliases:['Acme'],emails:['alex@acme.test']}];
+ assert(clientChecklist(proposal,clients,'Please create our campaign').ready);
+ assert.equal(clientChecklist({...proposal,client_name:'Other business'},clients,'Please create our campaign').identity_resolved,false);
+ assert.equal(clientChecklist(proposal,clients,'No such quote').relationship_evidence,false);
+ assert.equal(clientChecklist({...proposal,client_name:'Acme'},clients,'Please create our campaign').matched_client_id,'one');
+});
+test('website suggestions must use public, actually consulted sources',()=>{
+ for(const url of ['javascript:alert(1)','http://localhost','http://127.0.0.1','https://user:pass@example.com','https://thing.internal']) assert.equal(publicWebsite(url),null);
+ const response={status:'completed',output:[{type:'web_search_call',action:{sources:[{url:'https://example.com/about',title:'About'}]}},{content:[{type:'output_text',text:JSON.stringify({website_url:'https://example.com',explanation:'Name and location match'})}]}]};
+ assert.equal(websiteResult(response).url,'https://example.com');
+ assert.equal(publicWebsite('https://sites.google.com/view/real-business'),'https://sites.google.com/view/real-business');
+ response.output[1].content![0].text=JSON.stringify({website_url:'https://invented.com',explanation:'Guess'});
+ assert.equal(websiteResult(response).url,null);
+});
+test('website lookup has its own server-only monthly allowance',async()=>{
+ await assert.rejects(as(ids[3],'select public.sot_reserve_website_search()'),/permission denied/);
+ for(let i=0;i<40;i++)assert.equal((await db.query<any>('select public.sot_reserve_website_search() as ok')).rows[0].ok,true);
+ assert.equal((await db.query<any>('select public.sot_reserve_website_search() as ok')).rows[0].ok,false);
 });
