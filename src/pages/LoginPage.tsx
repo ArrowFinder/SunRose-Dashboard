@@ -20,7 +20,7 @@ export function LoginPage() {
 
   const cloud = auth.isConfigured;
   const internalUsers = data.users.filter(
-    (u) => u.role === "owner" || u.role === "admin" || u.role === "employee"
+    (u) => u.role === "owner" || u.role === "admin" || u.role === "supervisor" || u.role === "employee"
   );
 
   const sessionNoProfile =

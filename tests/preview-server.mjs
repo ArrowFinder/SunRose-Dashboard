@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 const db = new PGlite();
 await db.exec(
-  `create role authenticated; create role anon; create schema auth; create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}'); create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; grant usage on schema auth to authenticated,anon; grant execute on function auth.uid() to authenticated,anon;`,
+  `create role authenticated; create role anon; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}'); create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; grant usage on schema auth to authenticated,anon; grant execute on function auth.uid() to authenticated,anon;`,
 );
 for (const file of [
   "20250201000000_profiles.sql",
@@ -13,6 +13,8 @@ for (const file of [
   "20260930000000_actual_hours_override.sql",
   "20260930010000_subtasks.sql",
   "20261001000000_account_names_and_roles.sql",
+  "20261002000000_supervisor_role.sql",
+  "20261002010000_sot.sql",
 ])
   await db.exec(
     (
@@ -42,7 +44,14 @@ await db.exec(
 // A deliberately overlong saved session for exercising owner/admin correction.
 await db.exec(`insert into public.work_items(id,client_id,year_month,title) values('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',to_char(now(),'YYYY-MM'),'Sample time correction');
 insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values('20000000-0000-4000-8000-000000000001','${users[1].id}',now()-interval '1 day',now()-interval '16 hours',480);`);
+// Sample suggestions contain no real email or credentials.
+await db.exec(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,source_subject,evidence) values
+('${users[0].id}','client','preview-client','Acme Studio','A client requesting help with their November email campaign.','{"client_name":"Acme Studio","contact_email":"alex@acme.test","client_id":null,"parent_id":null,"task_id":null,"due_date":null,"estimated_hours":null}','preview-thread','November campaign','Please help us put together our November email campaign.'),
+('${users[0].id}','task','preview-task','Write the November email campaign','Draft the copy and send it to Alex for approval before launch.','{"client_name":"Acme Studio","contact_email":"alex@acme.test","client_id":null,"parent_id":null,"task_id":null,"due_date":"2026-11-10","estimated_hours":null}','preview-thread','November campaign','Could you have a draft ready by November 10?');`);
 const allowed = new Set([
+  "sot_connections",
+  "sot_suggestions",
+  "sot_notifications",
   "clients",
   "profiles",
   "client_members",
@@ -58,6 +67,9 @@ const rpc = new Set([
   "stop_work_timer",
   "correct_work_timer",
   "correct_time_entry",
+  "sot_accept",
+  "sot_dismiss",
+  "sot_mark_read",
   "manage_member",
   "update_my_name",
   "void_time_entry",
@@ -147,6 +159,7 @@ const server = http.createServer((req, res) => {
             res.end();
             return;
           }
+          if(url.pathname === "/functions/v1/sot") return send(200, {configured:false});
           if (!url.pathname.startsWith("/rest/v1/"))
             return send(404, { message: "Not found" });
           await db.exec("begin");

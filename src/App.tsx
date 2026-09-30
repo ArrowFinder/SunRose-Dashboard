@@ -4,6 +4,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { AppStateProvider } from "./context/AppStateContext";
 import { Layout } from "./components/Layout";
 import { RequireAuth } from "./components/RequireAuth";
+import { SotPage } from "./pages/SotPage";
 import { Overview } from "./pages/Overview";
 import { ClientWorkspace } from "./pages/ClientWorkspace";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -25,6 +26,7 @@ export default function App() {
           <Route element={<RequireAuth />}>
             <Route element={<Layout />}>
               <Route index element={<Overview />} />
+              <Route path="sot" element={<SotPage />} />
               <Route path="client/:clientId" element={<ClientWorkspace />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="team" element={<TeamPage />} />

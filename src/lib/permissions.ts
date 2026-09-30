@@ -17,7 +17,7 @@ export function userCanAccessClient(user: User | null, clientId: string): boolea
 
 export function isInternalUser(user: User | null): boolean {
   const r = user?.role;
-  return r === "owner" || r === "admin" || r === "employee";
+  return r === "owner" || r === "admin" || r === "supervisor" || r === "employee";
 }
 
 export function isOwner(user: User | null): boolean {

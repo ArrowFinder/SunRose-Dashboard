@@ -58,7 +58,7 @@ export function ClientWorkspace() {
   const assignableUsers = useMemo(
     () =>
       data.users.filter(
-        (u) => u.active !== false && (u.role === "owner" || u.role === "admin" || u.role === "employee")
+        (u) => u.active !== false && (u.role === "owner" || u.role === "admin" || u.role === "supervisor" || u.role === "employee")
       ),
     [data.users]
   );
