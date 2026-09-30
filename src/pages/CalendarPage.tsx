@@ -4,6 +4,7 @@ import { useAppState } from "../context/AppStateContext";
 import { hexOrDefault } from "../lib/color";
 import { clientsVisibleToUser } from "../lib/permissions";
 import { STATUS_LABELS, SCOPE_LABELS } from "../lib/labels";
+import { taskSummary } from "../lib/taskTree";
 import type { Client, WorkItem } from "../lib/types";
 
 function startOfCalendarMonth(d: Date): Date {
@@ -37,11 +38,11 @@ function CalendarTaskChip({
   return (
     <div className="calendar-chip-wrap">
       <Link
-        to={`/client/${w.clientId}`}
+        to={`/client/${w.clientId}?month=${w.yearMonth}&task=${w.parentId ?? w.id}`}
         className="calendar-chip"
         style={{ background: color, color: "#fff" }}
       >
-        {w.title.length > 22 ? `${w.title.slice(0, 20)}…` : w.title}
+        {w.parentId ? "↳ " : ""}{w.title.length > 22 ? `${w.title.slice(0, 20)}…` : w.title}
       </Link>
       <div className="calendar-tooltip" role="tooltip">
         <div className="calendar-tooltip-title">{w.title}</div>
@@ -76,6 +77,7 @@ function CalendarTaskChip({
 
 export function CalendarPage() {
   const { data, currentUser } = useAppState();
+  const [showSubtasks, setShowSubtasks] = useState(false);
   const [cursor, setCursor] = useState(() => new Date());
 
   const y = cursor.getFullYear();
@@ -93,6 +95,7 @@ export function CalendarPage() {
     const map = new Map<number, typeof data.workItems>();
     const ymPrefix = `${y}-${String(m + 1).padStart(2, "0")}`;
     for (const w of data.workItems) {
+      if (w.parentId && !showSubtasks) continue;
       if (!w.dueDate || !w.dueDate.startsWith(ymPrefix)) continue;
       const day = Number(w.dueDate.slice(8, 10));
       if (!day) continue;
@@ -104,7 +107,7 @@ export function CalendarPage() {
       list.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
     }
     return map;
-  }, [data.workItems, y, m]);
+  }, [data.workItems, y, m, showSubtasks]);
 
   if (currentUser?.role === "client") {
     return currentUser.clientId ? (
@@ -140,6 +143,7 @@ export function CalendarPage() {
         </p>
       </div>
 
+      <label><input type="checkbox" checked={showSubtasks} onChange={e => setShowSubtasks(e.target.checked)} /> Include subtask deadlines</label>
       <div className="calendar-page-layout">
         <aside className="calendar-sidebar card">
           <h2 className="calendar-sidebar-heading">Clients</h2>
@@ -181,7 +185,7 @@ export function CalendarPage() {
                       {(itemsByDay.get(d) ?? []).map((w) => {
                         const client = data.clients.find((cl) => cl.id === w.clientId);
                         const color = client ? hexOrDefault(client) : "#78716c";
-                        return <CalendarTaskChip key={w.id} w={w} client={client} color={color} />;
+                        return <CalendarTaskChip key={w.id} w={{...w,status:taskSummary(w,data.workItems,data.timeEntries).status,estimatedHours:taskSummary(w,data.workItems,data.timeEntries).estimated}} client={client} color={color} />;
                       })}
                     </div>
                   </>

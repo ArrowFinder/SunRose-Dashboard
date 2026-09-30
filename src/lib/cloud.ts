@@ -16,6 +16,7 @@ export const clientFromRow = (r: ClientRow): Client => ({
 });
 export const workFromRow = (r: WorkRow): WorkItem => ({
   id: r.id,
+  parentId: r.parent_id,
   clientId: r.client_id,
   yearMonth: r.year_month,
   title: r.title,
@@ -66,6 +67,7 @@ export const userFromRow = (r: ProfileRow): User => ({
 export function workPatch(w: Partial<WorkItem>): Partial<WorkRow> {
   const out: Partial<WorkRow> = {};
   const fields = {
+    parentId: "parent_id",
     clientId: "client_id",
     yearMonth: "year_month",
     title: "title",
