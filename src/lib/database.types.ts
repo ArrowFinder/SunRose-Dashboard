@@ -1,5 +1,6 @@
+import type { SotConnection, SotSuggestion, SotNotification } from "./sot";
 import type { WorkItem, TaskTemplate } from "./types";
-export type AppRole = "owner" | "admin" | "employee" | "client";
+export type AppRole = "owner" | "admin" | "supervisor" | "employee" | "client";
 type Table<T> = {
   Row: T;
   Insert: Partial<T>;
@@ -95,9 +96,19 @@ export interface Database {
       time_entries: Table<TimeRow>;
       task_templates: Table<TemplateRow>;
       active_timers: Table<TimerRow>;
+      sot_client_profiles: Table<{client_id:string;aliases:string[];location:string|null;business_type:string|null;website_url:string|null;website_sources:{url:string;title:string}[]}>;
+      sot_client_contacts: Table<{email:string;client_id:string}>;
+      sot_connections: Table<SotConnection>;
+      sot_suggestions: Table<SotSuggestion>;
+      sot_notifications: Table<SotNotification>;
     };
     Views: Record<string, never>;
     Functions: {
+      sot_confirm_identity: { Args: { suggestion_id:string;selected_client:string|null;separate_business:boolean;confirm_relationship:boolean }; Returns: undefined };
+      sot_confirm_website: { Args: { suggestion_id:string;use_website:boolean }; Returns: undefined };
+      sot_accept: { Args: { suggestion_id: string }; Returns: string };
+      sot_dismiss: { Args: { suggestion_id: string }; Returns: undefined };
+      sot_mark_read: { Args: { notification_id: string }; Returns: undefined };
       update_my_name: { Args: { new_name: string }; Returns: undefined };
       correct_time_entry: { Args: { entry_id: string; corrected_minutes: number; expected_minutes: number; expected_task_minutes: number }; Returns: undefined };
       member_client_view: { Args: Record<string, never>; Returns: { client: { id: string; name: string; color: string | null; createdAt: string }; items: { id: string; clientId: string; title: string; status: WorkItem["status"]; dueDate: string | null; yearMonth: string; parentId: string | null; completedSubtasks: number; totalSubtasks: number }[] } | null };

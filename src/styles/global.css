@@ -596,3 +596,19 @@ table.data tr:hover td {
     flex: 1 1 100%;
   }
 }
+
+.sot-panel { border-top: 3px solid var(--accent); }
+.sot-eyebrow { color: var(--accent); font-size: .7rem; font-weight: 700; letter-spacing: .14em; margin: 0; }
+.sot-panel h2 { margin: .25rem 0; }
+.sot-connection { padding: 1rem; background: var(--bg); border-radius: 8px; margin: 1rem 0; }
+.sot-suggestion { border: 1px solid var(--border); padding: 1rem; border-radius: 10px; }
+.sot-suggestion h3 { margin: .6rem 0; }
+.sot-suggestion p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sot-suggestion summary { cursor: pointer; color: var(--accent); }
+.sot-suggestion blockquote { margin: .75rem 0; border-left: 3px solid var(--border); padding-left: 1rem; }
+.sot-notification { background: var(--accent-soft); padding: .75rem 1rem; border-radius: 8px; }
+
+.sot-client-checklist { background: var(--bg); border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+.sot-client-checklist ul { list-style: none; padding: 0; margin: .6rem 0; }
+.sot-client-checklist li { padding: .2rem 0; }
+.sot-client-checklist button { margin-top: .6rem; }

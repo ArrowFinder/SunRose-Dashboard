@@ -8,7 +8,7 @@ export type ScopeCategory =
 
 export type WorkSource = "internal" | "client";
 
-export type UserRole = "owner" | "admin" | "employee" | "client";
+export type UserRole = "owner" | "admin" | "supervisor" | "employee" | "client";
 
 export interface Client {
   id: string;

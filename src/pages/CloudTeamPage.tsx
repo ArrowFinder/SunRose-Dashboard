@@ -49,6 +49,7 @@ function Member({ member }: { member: User }) {
               onChange={(e) => setRole(e.target.value as UserRole)}
             >
               <option value="client">Client / awaiting access</option>
+              <option value="supervisor">Supervisor</option>
               <option value="employee">Employee</option>
               <option value="admin">Admin</option>
               <option value="owner">Owner</option>
@@ -111,7 +112,7 @@ export function CloudTeamPage() {
         then assigns their access here. New accounts cannot see
         business work until assigned access.
       </p>
-      <p className="muted">Owner and Admin have full workspace and account management access. Employees manage work and track time. Clients see only work shared with their assigned business.</p>
+      <p className="muted">Owner and Admin have full workspace and account management access. Supervisors oversee all clients and employees. Employees manage work and track time. Clients see only work shared with their assigned business.</p>
       {data.users.map((u) => (
         <Member key={u.id} member={u} />
       ))}

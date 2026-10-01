@@ -89,7 +89,8 @@ function LocalTeamPage() {
                   value={newUserRole}
                   onChange={(e) => setNewUserRole(e.target.value as UserRole)}
                 >
-                  <option value="employee">Employee</option>
+                  <option value="supervisor">Supervisor</option>
+              <option value="employee">Employee</option>
                   <option value="admin">Admin</option>
                   <option value="owner">Owner</option>
                   <option value="client">Client</option>

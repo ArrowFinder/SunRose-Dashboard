@@ -1,0 +1,3 @@
+[functions.sot]
+# Google redirects have no Supabase JWT. Every other route explicitly verifies getUser().
+verify_jwt = false

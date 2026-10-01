@@ -1,3 +1,4 @@
+import { SotReview } from "../components/SotReview";
 import { Link, Navigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
 import { currentYearMonth, labelYearMonth } from "../lib/month";
@@ -26,13 +27,13 @@ export function Overview() {
 
   if (clients.length === 0) {
     return (
-      <div className="empty card">
+      <div className="stack"><SotReview/><div className="empty card">
         <p>No clients yet.</p>
         <p className="muted">Add a client under Clients to get started.</p>
         <Link to="/clients" className="btn btn-primary" style={{ marginTop: "1rem" }}>
           Go to Clients
         </Link>
-      </div>
+      </div></div>
     );
   }
 
@@ -45,6 +46,7 @@ export function Overview() {
           billable time worked in this month (UTC).
         </p>
       </div>
+      <SotReview />
       <div className="grid-2">
         {rows.map(({ client, snap }) => (
           <Link
