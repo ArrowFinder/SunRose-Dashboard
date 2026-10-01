@@ -11,6 +11,7 @@ export function ClientIdentityCard({clientId}:{clientId:string}) {
  if(!profile&&!contacts.length)return null;
  return <details className="card"><summary>Client identity · used by SOT for future email matching</summary>
   <p>Known contacts: {contacts.join(', ')||'None saved'}</p>
+  <p>Confirmed email domains: {profile?.domains?.join(', ')||'None saved'}</p>
   <p>Alternate names: {profile?.aliases.join(', ')||'None saved'}</p>
   <p>{[profile?.location,profile?.business_type].filter(Boolean).join(' · ')}</p>
   {profile?.website_url?<p>Approved website: <a href={profile.website_url} target="_blank" rel="noreferrer">{profile.website_url}</a></p>:<p className="muted">No website approved.</p>}
