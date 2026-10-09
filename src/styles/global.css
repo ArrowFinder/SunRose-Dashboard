@@ -633,3 +633,15 @@ table.data tr:hover td {
 .task-removal { margin-top:1rem; border-top:1px solid #e6e3df; padding-top:.65rem; }
 .task-removal p { font-size:.8rem; line-height:1.4; }
 .action-confirm { margin-top:.6rem; padding:.8rem; border:1px solid #cda888; border-radius:8px; background:#fff9f3; }
+
+/* Overview: deadlines first, with a full calendar below suggestions. */
+.overview-section-heading, .overview-counts { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
+.overview-section-heading h2 { margin:0; }
+.overview-todos { list-style:none; padding:0; margin:1rem 0 0; }
+.overview-todos li + li { margin-top:.6rem; }
+.overview-todo { display:flex; justify-content:space-between; align-items:center; gap:1rem; border:1px solid var(--border); border-left:4px solid; border-radius:10px; padding:1rem; text-decoration:none; color:inherit; }
+.overview-todo:hover { background:var(--bg); }
+.overview-todo:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.overview-task-context { display:block; color:var(--muted); font-size:.875rem; margin-top:.3rem; }
+.overview-todo .badge { flex-shrink:0; }
+@media(max-width:640px) { .overview-todo { align-items:flex-start; flex-direction:column; gap:.6rem; } }

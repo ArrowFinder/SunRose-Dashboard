@@ -75,9 +75,9 @@ function CalendarTaskChip({
   );
 }
 
-export function CalendarPage({clientId}:{clientId?:string}={}) {
+export function CalendarPage({clientId, embedded=false}:{clientId?:string; embedded?:boolean}={}) {
   const { data, currentUser } = useAppState();
-  const [showSubtasks, setShowSubtasks] = useState(!!clientId);
+  const [showSubtasks, setShowSubtasks] = useState(!!clientId || embedded);
   const [cursor, setCursor] = useState(() => new Date());
 
   const y = cursor.getFullYear();
@@ -130,7 +130,7 @@ export function CalendarPage({clientId}:{clientId?:string}={}) {
   return (
     <div className="stack">
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.75rem" }}>
-        <h1 style={{ margin: 0 }}>Calendar</h1>
+        {embedded ? <h2 style={{ margin: 0 }}>All clients calendar</h2> : <h1 style={{ margin: 0 }}>Calendar</h1>}
         <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
           <button type="button" className="btn" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
             ←
