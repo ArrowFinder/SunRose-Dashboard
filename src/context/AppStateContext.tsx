@@ -46,6 +46,8 @@ const SESSION_KEY = "sunrose-session-user-id";
 
 type Result<T> = T | Promise<T>;
 export type Ctx = {
+  supportSnapshot?: import('../lib/support').SupportSnapshot;
+  viewPath?: (path:string)=>string;
   ready: boolean;
   correctTimeEntry?: (entryId: string, minutes: number, expectedMinutes: number, expectedTotalMinutes: number) => Promise<void>;
   correctTimer?: (end: string, reason: string) => Promise<void>;

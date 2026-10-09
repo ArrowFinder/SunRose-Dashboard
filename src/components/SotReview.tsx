@@ -7,6 +7,21 @@ import { getSupabase } from '../lib/supabaseClient';
 import { sotAction, type SotConnection, type SotSuggestion, type SotNotification } from '../lib/sot';
 
 export function SotReview() {
+ const {supportSnapshot}=useAppState();
+ return supportSnapshot ? <SupportSotReview/> : <LiveSotReview/>;
+}
+function SupportSotReview(){
+ const {supportSnapshot:s,currentUser,data}=useAppState();
+ return <section className="card stack" aria-label="SOT — Source of Truth"><h2>SOT · Suggestions {s?.suggestions?.length||0}</h2>
+ <p className="muted">Read-only suggestions for {currentUser?.name}. Review actions are available in their own account.</p>
+ <p>{s?.connection?`${s.connection.email} · ${s.connection.auto_scan?'Automatic checks enabled':'Automatic checks paused'}`:'Gmail is not connected.'}</p>
+ {s?.connection?.last_error&&<p role="status">Scan paused: {s.connection.last_error}</p>}
+ {s?.notifications?.map(n=><p key={n.id}>{n.message}</p>)}
+ {!s?.suggestions?.length&&<p>No pending suggestions.</p>}
+ {s?.suggestions?.map(item=><article className="card" key={item.id}><span className="badge">{({client:'Possible client',task:'Suggested task',update:'Task update',complete:'Task completion'})[item.kind]}</span><h3>{item.title}</h3><p>{item.description}</p><p className="muted">Client: {data.clients.find(c=>c.id===item.payload.client_id)?.name||item.payload.client_name} · Assigned to: {currentUser?.name} · {item.payload.due_date||'No deadline specified'}</p>{item.payload.checklist&&!item.payload.checklist.ready&&<p>Needs clarification: {item.payload.checklist.explanation||'Confirm the client relationship before adding.'}</p>}<blockquote>{item.evidence}</blockquote><details><summary>Source email</summary>{item.source_subject}</details></article>)}
+ </section>;
+}
+function LiveSotReview() {
  const {cloud,currentUser,data,refresh}=useAppState();
  const [params,setParams]=useSearchParams();
  const [connection,setConnection]=useState<SotConnection|null>(null);

@@ -1,3 +1,4 @@
+import { SupportView } from "./pages/SupportView";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { PasswordRecovery } from "./components/PasswordRecovery";
 import { AuthProvider } from "./context/AuthContext";
@@ -33,6 +34,7 @@ export default function App() {
               <Route path="client/:clientId/tasks" element={<ClientWorkspace />} />
               <Route path="client/:clientId/task/:taskId" element={<ClientWorkspace />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="support/:userId/*" element={<SupportView />} />
               <Route path="team" element={<TeamPage />} />
               <Route path="clients" element={<ClientsPage />} />
               <Route path="calendar" element={<CalendarPage />} />
