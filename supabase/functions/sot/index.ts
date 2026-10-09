@@ -58,7 +58,7 @@ async function scan(uid:string) {
   const list=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+q,{headers});
   const clientRows=checked(await db.from('clients').select('id,name').order('created_at').limit(1000))||[];
   const contactRows=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
-  const profiles=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url').limit(1000))||[];
+  const profiles=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').limit(1000))||[];
   const clients=clientRows.map((c:any)=>({...c,...profiles.find((p:any)=>p.client_id===c.id),emails:contactRows.filter((r:any)=>r.client_id===c.id).map((r:any)=>r.email)}));
   const tasks=checked(await db.from('work_items').select('id,client_id,parent_id,title,status,due_date,updated_at').order('updated_at',{ascending:false}).limit(300))||[];
   const reviews=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
@@ -76,8 +76,8 @@ async function scan(uid:string) {
    if(cached?.fingerprint===fingerprint) continue;
    const contacts=addresses(messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' '));
    // Bound the full request, including context, rather than silently creating an expensive scan.
-   const relevantClients=[...clients].sort((a:any,b:any)=>Number(b.emails.some((e:string)=>contacts.includes(e)))-Number(a.emails.some((e:string)=>contacts.includes(e))));
    const relationship=clientContext(contacts,messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
+   const relevantClients=[...clients].sort((a:any,b:any)=>Number(relationship.candidates.some(c=>c.id===b.id))-Number(relationship.candidates.some(c=>c.id===a.id))).map((c:any)=>({...c,description:bounded(c.description||'',400),services:bounded(c.services||'',400),context_notes:bounded(c.context_notes||'',1600)}));
    const matched=relationship.matched;
    const relevantReviews=reviews.filter((r:any)=>contacts.includes(r.contact_email)||r.client_name===matched?.name).slice(0,12);
    const context={clients:relevantClients.slice(0,80),tasks:tasks.slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
@@ -86,6 +86,7 @@ async function scan(uid:string) {
    let input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});
    while(new TextEncoder().encode(input).length>16000 && selected.length>1) {selected=selected.slice(1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
    if(new TextEncoder().encode(input).length>16000) {context.tasks=[];context.clients=relevantClients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
+   while(new TextEncoder().encode(input).length>16000 && context.clients.length>1) {context.clients=context.clients.slice(0,-1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
    if(new TextEncoder().encode(input).length>16000) throw new Error('A conversation is too large to process safely. Contact the owner.');
    const passes:('clients'|'tasks')[]=relationship.allowNewClient?['clients','tasks']:['tasks'];
    if(!checked(await db.rpc('sot_reserve_current_calls',{calls:passes.length}))) throw new Error('SOT reached a spending limit (10 calls per three hours, 20 per UTC day, or the monthly allowance). Progress is saved; automatic checks will retry later.');

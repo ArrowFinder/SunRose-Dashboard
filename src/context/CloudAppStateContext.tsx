@@ -268,6 +268,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
                 id,
                 name: name.trim(),
                 retainer_hours_per_month: hours,
+                hour_limit_enabled: hours>0,
                 share_token: shareToken(),
                 color: colorForClientId(id),
               })
@@ -283,6 +284,11 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
             .from("clients")
             .update({
               ...(p.name !== undefined ? { name: p.name.trim() } : {}),
+              ...(p.billingType !== undefined ? {billing_type:p.billingType}:{}),
+              ...(p.hourLimitEnabled !== undefined ? {hour_limit_enabled:p.hourLimitEnabled}:{}),
+              ...(p.hourlyRate !== undefined ? {hourly_rate:p.hourlyRate}:{}),
+              ...(p.monthlyFee !== undefined ? {monthly_fee:p.monthlyFee}:{}),
+              ...(p.overageRate !== undefined ? {overage_rate:p.overageRate}:{}),
               ...(p.retainerHoursPerMonth !== undefined
                 ? { retainer_hours_per_month: p.retainerHoursPerMonth }
                 : {}),

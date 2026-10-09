@@ -1,4 +1,3 @@
-import { ClientIdentityCard } from "../components/ClientIdentityCard";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
@@ -18,7 +17,7 @@ import { subtasksFor, taskSummary, taskRootsForMonth } from "../lib/taskTree";
 
 export function ClientWorkspace() {
   const [searchParams] = useSearchParams();
-  const { clientId } = useParams<{ clientId: string }>();
+  const { clientId,taskId } = useParams<{ clientId: string;taskId:string }>();
   const {
     data,
     cloud,
@@ -56,6 +55,9 @@ export function ClientWorkspace() {
 
   const client = data.clients.find((c) => c.id === clientId);
 
+  const selectedTask=data.workItems.find(w=>w.id===taskId&&w.clientId===clientId);
+  const taskRoot=selectedTask?.parentId?data.workItems.find(w=>w.id===selectedTask.parentId&&w.clientId===clientId):selectedTask;
+  useEffect(()=>{if(taskRoot){setYearMonth(taskRoot.yearMonth);setExpanded(old=>new Set([...old,taskRoot.id]));}},[taskRoot?.id]);
   const assignableUsers = useMemo(
     () =>
       data.users.filter(
@@ -71,7 +73,7 @@ export function ClientWorkspace() {
       .forEach((w) => set.add(w.yearMonth));
     set.add(yearMonth);
     return Array.from(set).sort().reverse();
-  }, [data.workItems, clientId, yearMonth]);
+  }, [data.workItems, clientId, yearMonth,taskId,taskRoot]);
 
   const snap = useMemo(() => {
     if (!client) return null;
@@ -80,13 +82,14 @@ export function ClientWorkspace() {
 
   const items = useMemo(() => {
     if (!clientId) return [];
+    if(taskId)return taskRoot?[taskRoot]:[];
     return taskRootsForMonth(data.workItems, clientId, yearMonth);
   }, [data.workItems, clientId, yearMonth]);
 
   const entriesThisMonth = useMemo(() => {
-    const ids = new Set(data.workItems.filter(w => w.clientId === clientId).map(w => w.id));
+    const ids = new Set(data.workItems.filter(w => w.clientId === clientId&&(!taskId||w.id===taskRoot?.id||w.parentId===taskRoot?.id)).map(w => w.id));
     return data.timeEntries.filter((e) => ids.has(e.workItemId) && entryHoursInMonth(e, yearMonth) > 0 && !e.voidedAt);
-  }, [data.timeEntries, data.workItems, clientId, yearMonth]);
+  }, [data.timeEntries, data.workItems, clientId, yearMonth,taskId,taskRoot]);
 
   const clientTemplates = useMemo(
     () => data.taskTemplates.filter((t) => t.clientId === client?.id),
@@ -134,10 +137,10 @@ export function ClientWorkspace() {
 
   return (
     <div className="stack">
-      {cloud && <ClientIdentityCard clientId={client.id}/>}
+
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
-        <Link to="/">← Overview</Link>
-        <h1 style={{ flex: "1 1 auto", margin: 0 }}>{client.name}</h1>
+        <Link to={`/client/${client.id}`}>← {client.name} calendar</Link>
+        <h1 style={{ flex: "1 1 auto", margin: 0 }}>{taskId?(taskRoot?.title??"Task unavailable"):client.name}</h1>
         <div className="field" style={{ margin: 0, minWidth: "160px" }}>
           <label htmlFor="m">Month</label>
           <input
@@ -169,18 +172,18 @@ export function ClientWorkspace() {
               type="button"
               className="btn btn-primary"
               onClick={() => {
-                setParentTask(null);
+                setParentTask(taskRoot??null);
                 setEditing(null);
                 setModalOpen(true);
               }}
             >
-              Add work item
+              {taskRoot?"Add subtask":"Add task"}
             </button>
           </>
         )}
       </div>
 
-      {staff && snap && (
+      {staff && snap && !taskId && (
         <div className="card">
           <h2 style={{ marginBottom: "0.75rem" }}>{labelYearMonth(yearMonth)}</h2>
           <MonthSnapshot snap={snap} />
@@ -189,7 +192,7 @@ export function ClientWorkspace() {
       )}
 
       <div className="card">
-        <h2 style={{ marginBottom: "0.75rem" }}>Work this month</h2>
+        <h2 style={{ marginBottom: "0.75rem" }}>{taskId?"Main task & subtasks":"Work this month"}</h2>
         {actionError && <p role="alert">{actionError}</p>}
         {items.length === 0 ? (
           <p className="muted">No items for this month. Add one or pick another month.</p>
@@ -207,7 +210,7 @@ export function ClientWorkspace() {
                 </tr>
               </thead>
               <tbody>
-                {items.flatMap(root => [root, ...(expanded.has(root.id) ? subtasksFor(root,data.workItems) : [])]).map((w) => {
+                {items.flatMap(root => [root, ...(taskId || expanded.has(root.id) ? subtasksFor(root,data.workItems) : [])]).map((w) => {
                   const logged = hoursLoggedForWorkItem(w.id, data.timeEntries);
                   const summary = taskSummary(w, data.workItems, data.timeEntries);
                   const display = summary.actual;
@@ -215,10 +218,10 @@ export function ClientWorkspace() {
                   const running =
                     activeTimer?.workItemId === w.id && activeTimer.userId === sessionUserId;
                   return (
-                    <tr key={w.id}>
+                    <tr key={w.id} className={w.id===taskId?"task-selected":undefined}>
                       <td style={{minWidth:"220px",paddingLeft:w.parentId ? "1.5rem" : undefined}}>
                         {hasChildren && <button type="button" className="btn btn-ghost" aria-label={`${expanded.has(w.id) ? "Collapse" : "Expand"} ${w.title}`} aria-expanded={expanded.has(w.id)} onClick={() => setExpanded(old => { const next = new Set(old); next.has(w.id) ? next.delete(w.id) : next.add(w.id); return next; })}>{expanded.has(w.id) ? "▾" : "▸"}</button>}
-                        <strong>{w.parentId ? "↳ " : ""}{w.title}</strong>
+                        <strong><Link to={`/client/${client.id}/task/${w.id}`}>{w.parentId ? "↳ " : ""}{w.title}</Link></strong>
                         {hasChildren && <div className="muted">{summary.done} of {summary.total} complete</div>}
                         {w.parentId && w.yearMonth !== yearMonth && <div className="muted">Scheduled {labelYearMonth(w.yearMonth)}</div>}
                         {w.description ? (
@@ -355,7 +358,7 @@ export function ClientWorkspace() {
         </div>
       )}
 
-      {staff && clientTemplates.length > 0 && (
+      {staff && !taskId && clientTemplates.length > 0 && (
         <div className="card">
           <h2 style={{ marginBottom: "0.5rem" }}>Reusable templates for {client.name}</h2>
           <p className="muted" style={{ fontSize: "0.9rem", marginTop: 0 }}>

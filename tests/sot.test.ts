@@ -274,3 +274,22 @@ test('tasks for an unrecognized business require client clarification',()=>{
  assert.equal(result.identity_resolved,false);assert.equal(result.ready,false);
  assert.match(result.explanation,/not confirmed/);
 });
+
+test('only owners/admins can save private client context and billing',async()=>{
+ const args=[clientId,'Marketing client','Email campaigns','Sponsor belongs to this client',['Acme'],['acme.test'],['person@acme.test']];
+ const call='select public.save_client_context($1,$2,$3,$4,$5,$6,$7)';
+ await as(ids[0],call,args);
+ assert.equal((await as(ids[3],'select context_notes from public.sot_client_profiles where client_id=$1',[clientId]))[0].context_notes,'Sponsor belongs to this client');
+ await assert.rejects(as(ids[3],call,args),/Owner or admin/);
+ await assert.rejects(as(ids[2],call,args),/Owner or admin/);
+ await assert.rejects(as(ids[4],call,args),/Owner or admin/);
+ await assert.rejects(as(null,call,args),/permission denied/);
+ assert.equal((await as(ids[4],'select * from public.sot_client_profiles')).length,0);
+ await assert.rejects(as(ids[0],call,[...args.slice(0,5),['gmail.com'],args[6]]),/business domains/);
+ await as(ids[1],"update public.clients set billing_type='hourly',hourly_rate=125,hour_limit_enabled=false where id=$1",[clientId]);
+ await as(ids[3],"update public.clients set hourly_rate=999 where id=$1",[clientId]);
+ assert.equal((await db.query('select hourly_rate from public.clients where id=$1',[clientId])).rows[0].hourly_rate,'125');
+ await assert.rejects(as(ids[0],"update public.clients set monthly_fee=-1 where id=$1",[clientId]),/check constraint/);
+ const view=await as(null,"select public.shared_client_view($1,'2026-11') as view",[(await db.query('select share_token from public.clients where id=$1',[clientId])).rows[0].share_token]);
+ assert.equal(view.length,1);assert.ok(!JSON.stringify(view).includes('Sponsor belongs'));assert.ok(!JSON.stringify(view).includes('hourly_rate'));
+});

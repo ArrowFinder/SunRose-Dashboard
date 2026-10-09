@@ -6,6 +6,7 @@ import { Layout } from "./components/Layout";
 import { RequireAuth } from "./components/RequireAuth";
 import { SotPage } from "./pages/SotPage";
 import { Overview } from "./pages/Overview";
+import { ClientHome } from "./pages/ClientHome";
 import { ClientWorkspace } from "./pages/ClientWorkspace";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TeamPage } from "./pages/TeamPage";
@@ -27,7 +28,10 @@ export default function App() {
             <Route element={<Layout />}>
               <Route index element={<Overview />} />
               <Route path="sot" element={<SotPage />} />
-              <Route path="client/:clientId" element={<ClientWorkspace />} />
+              <Route path="client/:clientId" element={<ClientHome />} />
+              <Route path="client/:clientId/details" element={<ClientHome details />} />
+              <Route path="client/:clientId/tasks" element={<ClientWorkspace />} />
+              <Route path="client/:clientId/task/:taskId" element={<ClientWorkspace />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="team" element={<TeamPage />} />
               <Route path="clients" element={<ClientsPage />} />

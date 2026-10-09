@@ -51,6 +51,8 @@ export function backlogHoursNeedingApproval(
 
 export interface MonthSnapshot {
   retainer: number;
+  hasHourLimit: boolean;
+  billingType: "hourly" | "retainer";
   used: number;
   committed: number;
   remainingAfterUsed: number;
@@ -66,18 +68,19 @@ export function monthSnapshot(
   entries: TimeEntry[]
 ): MonthSnapshot {
   const retainer = client.retainerHoursPerMonth;
+  const hasHourLimit=client.hourLimitEnabled ?? retainer>0;
   const used = usedHoursForMonth(items, client.id, yearMonth, entries);
   const committed = committedHoursForMonth(items, client.id, yearMonth, entries);
   const remainingAfterUsed = Math.max(0, retainer - used);
   const remainingAfterCommitted = retainer - used - committed;
   const pendingApprovalHours = backlogHoursNeedingApproval(items, client.id, yearMonth);
   return {
-    retainer,
+    retainer, hasHourLimit, billingType:client.billingType??"retainer",
     used,
     committed,
     remainingAfterUsed,
     remainingAfterCommitted,
-    overCommitted: remainingAfterCommitted < 0,
+    overCommitted: hasHourLimit && remainingAfterCommitted < 0,
     pendingApprovalHours,
   };
 }
