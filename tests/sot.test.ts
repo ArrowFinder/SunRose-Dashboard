@@ -15,7 +15,7 @@ for(const [i,role] of ['owner','admin','supervisor','employee','client'].entries
 }
 async function as(uid:string|null,sql:string,args:unknown[]=[]) {await db.exec('begin');try{await db.exec(uid?'set local role authenticated':'set local role anon');await db.query("select set_config('request.jwt.claim.sub',$1,true)",[uid||'']);const r=await db.query(sql,args);await db.exec('commit');return r.rows as any[];}catch(e){await db.exec('rollback');throw e;}}
 const checklist={business_name:true,contact_email:true,relationship_evidence:true,existing_clients_checked:true,identity_resolved:true,ready:true};
-const payload={checklist,client_name:'Acme Studio',contact_email:'alex@acme.test',client_id:null,parent_id:null,task_id:null,due_date:'2026-11-10',estimated_hours:2};
+const payload={analysis_version:2,checklist,client_name:'Acme Studio',contact_email:'alex@acme.test',client_id:null,parent_id:null,task_id:null,due_date:'2026-11-10',estimated_hours:2};
 async function suggestion(uid=ids[3],kind='client',key=crypto.randomUUID(),patch={}){return (await db.query<{id:string}>(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,$2,$3,'November campaign','Write November copy',$4,'thread-1','Please prepare the November campaign') returning id`,[uid,kind,key,JSON.stringify({...payload,...patch})])).rows[0].id;}
 let clientId:string,taskId:string;
 test('supervisor is staff but cannot manage accounts or visibility',async()=>{
@@ -165,4 +165,75 @@ test('website lookup has its own server-only monthly allowance',async()=>{
  await assert.rejects(as(ids[3],'select public.sot_reserve_website_search()'),/permission denied/);
  for(let i=0;i<40;i++)assert.equal((await db.query<any>('select public.sot_reserve_website_search() as ok')).rows[0].ok,true);
  assert.equal((await db.query<any>('select public.sot_reserve_website_search() as ok')).rows[0].ok,false);
+});
+
+test('review memory records decisions privately with scoped rejection reasons',async()=>{
+ const s=await suggestion(ids[3],'client');
+ await as(ids[3],"select public.sot_dismiss_with_reason($1,'vendor')",[s]);
+ const history=await as(ids[3],'select decision,reason from public.sot_review_history where suggestion_id=$1',[s]);
+ assert.deepEqual(history,[{decision:'dismissed',reason:'vendor'}]);
+ assert.equal((await as(ids[0],'select * from public.sot_review_history where suggestion_id=$1',[s])).length,0);
+ await assert.rejects(as(ids[3],"insert into public.sot_review_history(user_id,suggestion_id,decision,kind,client_name,contact_email,title) values($1,$2,'accepted','client','','','')",[ids[3],s]),/permission denied/);
+ const other=await suggestion(ids[2]);
+ await assert.rejects(as(ids[3],"select public.sot_dismiss_with_reason($1,'vendor')",[other]),/no longer/);
+ await assert.rejects(as(ids[2],"select public.sot_dismiss_with_reason($1,'ignore_all_email')",[other]),/Invalid review reason/);
+});
+test('reassessment queues only own pending conversations, preserves decisions and needs staff',async()=>{
+ await db.query("insert into public.sot_connections(user_id,email) values($1,'employee@example.test') on conflict do nothing",[ids[3]]);
+ const s=await suggestion(ids[3],'task');
+ await as(ids[3],'select public.sot_recheck_pending()');
+ assert.ok((await db.query('select * from public.sot_recheck_queue where user_id=$1',[ids[3]])).rows.length);
+ assert.equal((await db.query('select status from public.sot_suggestions where id=$1',[s])).rows[0].status,'pending');
+ await assert.rejects(as(ids[4],'select public.sot_recheck_pending()'),/Staff access/);
+ await assert.rejects(as(ids[3],'select * from public.sot_recheck_queue'),/permission denied/);
+ await as(ids[3],'select public.sot_set_auto_scan(false)');
+ assert.equal((await db.query('select auto_scan from public.sot_connections where user_id=$1',[ids[3]])).rows[0].auto_scan,false);
+});
+test('analysis pair cannot exceed the existing monthly budget',async()=>{
+ await db.query("update public.sot_usage set reserved_calls=299 where month=to_char(now() at time zone 'UTC','YYYY-MM')");
+ assert.equal((await db.query('select public.sot_reserve_analysis_pair() as ok')).rows[0].ok,false);
+ await assert.rejects(as(ids[3],'select public.sot_reserve_analysis_pair()'),/permission denied/);
+});
+test('confirmed contacts outrank domains and ambiguous/shared domains do not force a match',async()=>{
+ const {knownCorrespondent}=await import('../supabase/functions/sot/identity.ts');
+ const clients=[{id:'lat',name:'LA Times Studios',domains:['latimes.com']},{id:'other',name:'Other',emails:['shared@latimes.com'],domains:['gmail.com']}];
+ assert.equal(knownCorrespondent(['person@latimes.com'],clients)?.id,'lat');
+ assert.equal(knownCorrespondent(['shared@latimes.com'],clients)?.id,'other');
+ assert.equal(knownCorrespondent(['person@gmail.com'],clients),null);
+ assert.equal(knownCorrespondent(['shared@latimes.com'],[...clients,{id:'third',name:'Third',emails:['shared@latimes.com']}]),null);
+ const p={...payload,kind:'client',client_name:'City of El Segundo',contact_email:'person@latimes.com',relationship_evidence:'Please update our assets'} as unknown as Proposal;
+ assert.equal(clientChecklist(p,clients,'Please update our assets').identity_resolved,false);
+});
+test('incremental scans use a stable window and overlap without repeating the whole discovery',async()=>{
+ const {incrementalQuery}=await import('../supabase/functions/sot/core.ts');
+ const start='2026-10-04T12:00:00Z',last='2026-10-04T09:00:00Z';
+ assert.match(incrementalQuery('sierra@sunrosecreative.com',start,last),new RegExp('after:'+Math.floor((Date.parse(last)-86400000)/1000)));
+ assert.match(incrementalQuery('sierra@sunrosecreative.com',start,last),new RegExp('before:'+Math.ceil(Date.parse(start)/1000)));
+ assert.match(incrementalQuery('sierra@sunrosecreative.com',start,null),new RegExp('after:'+Math.floor((Date.parse(start)-90*86400000)/1000)));
+});
+test('confirmed client setup is repeatable and seeds only approved domains',async()=>{
+ const setup=await readFile(new URL('../supabase/deployment/confirmed_clients.sql',import.meta.url),'utf8');
+ await db.exec(setup);await db.exec(setup);
+ const rows=(await db.query("select c.name,p.domains,p.aliases from public.clients c join public.sot_client_profiles p on c.id=p.client_id where c.name='LA Times Studios'")).rows;
+ assert.equal(rows.length,1);assert.deepEqual(rows[0].domains,['latimes.com']);
+ assert.ok((rows[0].aliases as string[]).includes('L.A. Times Studios'));
+ assert.equal((await db.query("select * from public.clients where name='First Tee Pasadena'")).rows.length,1);
+});
+
+test('legacy suggestions cannot bypass new analysis checks',async()=>{
+ const s=await suggestion(ids[3],'task',crypto.randomUUID(),{analysis_version:1});
+ await assert.rejects(as(ids[3],'select public.sot_accept($1)',[s]),/Reassess/);
+ await assert.rejects(as(ids[3],'select public.sot_accept_reviewed($1)',[s]),/permission denied/);
+});
+test('a service-set allowance increase is bounded and unavailable to app users',async()=>{
+ await assert.rejects(as(ids[0],'update public.sot_usage set analysis_limit=600'),/permission denied/);
+ await db.query("update public.sot_usage set reserved_calls=598,analysis_limit=600 where month=to_char(now() at time zone 'UTC','YYYY-MM')");
+ assert.equal((await db.query('select public.sot_reserve_analysis_pair() as ok')).rows[0].ok,true);
+ assert.equal((await db.query('select public.sot_reserve_analysis_pair() as ok')).rows[0].ok,false);
+});
+test('prototype databases without a share-token default can create SOT clients',async()=>{
+ await db.exec('alter table public.clients alter column share_token drop default');
+ await db.exec(await readFile(new URL('../supabase/migrations/20261004010000_client_share_token_default.sql',import.meta.url),'utf8'));
+ const row=(await db.query("insert into public.clients(name) values('Default regression') returning share_token")).rows[0];
+ assert.equal((row.share_token as string).length,72);
 });
