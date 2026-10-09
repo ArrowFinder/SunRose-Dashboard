@@ -231,3 +231,9 @@ test('a service-set allowance increase is bounded and unavailable to app users',
  assert.equal((await db.query('select public.sot_reserve_analysis_pair() as ok')).rows[0].ok,true);
  assert.equal((await db.query('select public.sot_reserve_analysis_pair() as ok')).rows[0].ok,false);
 });
+test('prototype databases without a share-token default can create SOT clients',async()=>{
+ await db.exec('alter table public.clients alter column share_token drop default');
+ await db.exec(await readFile(new URL('../supabase/migrations/20261004010000_client_share_token_default.sql',import.meta.url),'utf8'));
+ const row=(await db.query("insert into public.clients(name) values('Default regression') returning share_token")).rows[0];
+ assert.equal((row.share_token as string).length,72);
+});

@@ -78,7 +78,7 @@ The live website smoke check uses only the public query “OpenAI San Francisco 
 
 ## Discovery v2 deployment
 
-Apply `20261004000000_sot_review_memory.sql` after the earlier SOT migrations. Then run `supabase/deployment/confirmed_clients.sql` for this workspace only: it creates the six owner-confirmed clients without importing inferred contact associations. Only the explicitly confirmed `latimes.com` domain is seeded. Review other domain associations before adding them.
+Apply `20261004000000_sot_review_memory.sql` and then `20261004010000_client_share_token_default.sql` after the earlier SOT migrations. Then run `supabase/deployment/confirmed_clients.sql` for this workspace only: it creates the six owner-confirmed clients without importing inferred contact associations. Only the explicitly confirmed `latimes.com` domain is seeded. Review other domain associations before adding them.
 
 Deploy the updated Edge Function and frontend together. Client discovery and task extraction now use independent structured calls; each processed thread reserves two calls within the unchanged 300-call workspace monthly limit. This permits at most 150 fully analyzed threads/month before cached threads and retries are considered. Existing usage is not reset. Initial discovery may span billing months at this cap; use the visible usage interruption to decide whether to authorize a higher allowance. No automatic budget increase is included.
 
