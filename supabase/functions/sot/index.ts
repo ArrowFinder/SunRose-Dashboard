@@ -1,4 +1,4 @@
-import { clientChecklist, knownCorrespondent, websiteRequest, websiteResult } from './identity.ts';
+import { clientChecklist, clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
 import { addresses, agencyRelated, bounded, incrementalQuery, passInstructions, proposalSchema, STAFF_ROLES, STARTING_MAILBOX, validProposal, type Proposal } from './core.ts';
 const env = (name: string) => Deno.env.get(name) || '';
@@ -53,11 +53,9 @@ async function scan(uid:string) {
   if(!c) throw new Error('Connect Gmail first.');
   const access=await token(uid), headers={Authorization:'Bearer '+access};
   const started=c.scan_started_at||new Date().toISOString();
-  const q=new URLSearchParams({q:incrementalQuery(c.email,started,c.last_scan_at),maxResults:'1'});if(c.scan_cursor) q.set('pageToken',c.scan_cursor);
-  const queued=checked(await db.from('sot_recheck_queue').select('thread_id').eq('user_id',uid).order('created_at').limit(1));
-  const rechecking=!!queued?.length;
-  if(!rechecking&&!c.scan_started_at) checked(await db.from('sot_connections').update({scan_started_at:started,scanned_threads:0,last_error:null}).eq('user_id',uid));
-  const list=rechecking?{threads:[{id:queued[0].thread_id}]}:await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+q,{headers});
+  const q=new URLSearchParams({q:incrementalQuery(c.email,started,c.last_scan_at,c.scan_floor),maxResults:'1'});if(c.scan_cursor) q.set('pageToken',c.scan_cursor);
+  if(!c.scan_started_at) checked(await db.from('sot_connections').update({scan_started_at:started,scanned_threads:0,last_error:null}).eq('user_id',uid));
+  const list=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+q,{headers});
   const clientRows=checked(await db.from('clients').select('id,name').order('created_at').limit(1000))||[];
   const contactRows=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
   const profiles=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url').limit(1000))||[];
@@ -72,25 +70,27 @@ async function scan(uid:string) {
     const h=(name:string)=>m.payload?.headers?.find((h:any)=>h.name.toLowerCase()===name)?.value||'';
     return {id:m.id,messageId:h('message-id')||m.id,date:new Date(Number(m.internalDate)).toISOString(),from:h('from'),to:h('to'),cc:h('cc'),subject:h('subject'),body:bounded(body(m.payload||{}),9000)};
    }).filter((m:any)=>agencyRelated(m,c.email)).slice(-12);
-   if(!messages.length) {if(rechecking) checked(await db.from('sot_recheck_queue').delete().eq('user_id',uid).eq('thread_id',ref.id));continue;}
-   const fingerprint=await hash(JSON.stringify({messages,engine:'discovery-v2'}));
+   if(!messages.length) continue;
+   const fingerprint=await hash(JSON.stringify({messages,engine:'current-work-v3'}));
    const cached=checked(await db.from('sot_scan_cache').select('fingerprint').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
-   if(!rechecking&&cached?.fingerprint===fingerprint) continue;
+   if(cached?.fingerprint===fingerprint) continue;
    const contacts=addresses(messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' '));
    // Bound the full request, including context, rather than silently creating an expensive scan.
    const relevantClients=[...clients].sort((a:any,b:any)=>Number(b.emails.some((e:string)=>contacts.includes(e)))-Number(a.emails.some((e:string)=>contacts.includes(e))));
-   const matched=knownCorrespondent(contacts,clients);
+   const relationship=clientContext(contacts,messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
+   const matched=relationship.matched;
    const relevantReviews=reviews.filter((r:any)=>contacts.includes(r.contact_email)||r.client_name===matched?.name).slice(0,12);
-   const context={clients:relevantClients.slice(0,80),tasks:tasks.slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,mailbox:c.email};
+   const context={clients:relevantClients.slice(0,80),tasks:tasks.slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
    let selected=messages;
    const inputMessages=(items:any[])=>items.map(({id,messageId,...rest})=>({...rest,source_message_id:id}));
    let input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});
    while(new TextEncoder().encode(input).length>16000 && selected.length>1) {selected=selected.slice(1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
    if(new TextEncoder().encode(input).length>16000) {context.tasks=[];context.clients=relevantClients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
    if(new TextEncoder().encode(input).length>16000) throw new Error('A conversation is too large to process safely. Contact the owner.');
-   if(!checked(await db.rpc('sot_reserve_analysis_pair'))) throw new Error('SOT reached its monthly scan allowance. Saved suggestions remain available; the scan can resume next month.');
+   const passes:('clients'|'tasks')[]=relationship.allowNewClient?['clients','tasks']:['tasks'];
+   if(!checked(await db.rpc('sot_reserve_current_calls',{calls:passes.length}))) throw new Error('SOT reached a spending limit (10 calls per three hours, 20 per UTC day, or the monthly allowance). Progress is saved; automatic checks will retry later.');
    const proposals:Proposal[]=[];
-   for(const pass of ['clients','tasks'] as const) {
+   for(const pass of passes) {
     const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:passInstructions(pass),input,max_output_tokens:2400,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:proposalSchema}}})});
     if(response.status!=='completed') throw new Error('SOT could not finish reading a conversation. Retry the scan.');
     const output=response.output?.flatMap((o:any)=>o.content||[]).filter((x:any)=>x.type==='output_text').map((x:any)=>x.text).join('');
@@ -101,7 +101,8 @@ async function scan(uid:string) {
    const rows=[];
    for(const p of proposals) {
     if(!validProposal(p,selected.map((m:any)=>m.id),contacts)) continue;
-    if(p.kind==='client' && p.relationship_type!=='client') continue;
+    if(p.kind==='client' && (p.relationship_type!=='client'||!relationship.allowNewClient)) continue;
+    if(p.kind!=='client'&&matched) {p.client_id=matched.id;p.client_name=matched.name;}
     if(p.kind!=='client' && p.responsibility!=='sunrose') continue;
     if(p.kind==='client') {p.parent_id=null;p.task_id=null;p.due_date=null;p.estimated_hours=null;}
     if(p.client_id && !clients.some((x:any)=>x.id===p.client_id)) continue;
@@ -109,21 +110,18 @@ async function scan(uid:string) {
     if(['update','complete'].includes(p.kind) && (!target || target.client_id!==p.client_id || tasks.some((t:any)=>t.parent_id===target.id))) continue;
     if(p.parent_id && !tasks.some((t:any)=>t.id===p.parent_id&&!t.parent_id&&t.client_id===p.client_id)) continue;
     const source=selected.find((m:any)=>m.id===p.source_message_id);
+    if(Date.parse(source.date)<Date.parse(context.current_window.after)||Date.parse(source.date)>=Date.parse(started)) continue;
     const key=await hash(p.kind==='client'?'client:'+p.client_name.trim().toLowerCase():[p.kind,source.messageId,p.title.trim().toLowerCase(),p.task_id||''].join(':'));
     const checklist=clientChecklist(p,clients,source.body);
+    if(p.kind==='client'&&!checklist.ready) continue;
+    if(p.kind!=='client'&&matched) {checklist.identity_resolved=true;checklist.matched_client_id=matched.id;}
+    if(p.kind!=='client'&&relationship.candidates.length>1) {checklist.identity_resolved=false;checklist.possible_matches=relationship.candidates.map(c=>c.id);checklist.explanation='Multiple existing clients appear in this conversation. Confirm which client owns this work.';}
     if(!p.client_id && checklist.matched_client_id && checklist.identity_resolved) p.client_id=checklist.matched_client_id;
     if(p.kind==='client'&&checklist.matched_client_id&&checklist.identity_resolved) continue;
-    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,analysis_version:2,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
+    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,analysis_version:3,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
    }
    checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:rows}));
-   if(rechecking) checked(await db.from('sot_recheck_queue').delete().eq('user_id',uid).eq('thread_id',ref.id));
    made+=rows.length;
-  }
-  if(rechecking) {
-   const remaining=checked(await db.from('sot_recheck_queue').select('thread_id').eq('user_id',uid).limit(1));
-   const more=!!remaining?.length||!!c.scan_cursor||!c.last_scan_at;
-   checked(await db.from('sot_connections').update({last_error:null,next_scan_at:new Date(Date.now()+(more?60000:3*3600000)).toISOString()}).eq('user_id',uid));
-   return {more,created:made};
   }
   const more=!!list.nextPageToken;
   checked(await db.from('sot_connections').update({scan_cursor:list.nextPageToken||null,scan_started_at:more?started:null,last_scan_at:more?c.last_scan_at:started,last_error:null,next_scan_at:new Date(Date.now()+(more?60000:3*3600000)).toISOString(),scanned_threads:(c.scan_started_at?c.scanned_threads:0)+(list.threads||[]).length}).eq('user_id',uid));
