@@ -15,7 +15,7 @@ for(const [i,role] of ['owner','admin','supervisor','employee','client'].entries
 }
 async function as(uid:string|null,sql:string,args:unknown[]=[]) {await db.exec('begin');try{await db.exec(uid?'set local role authenticated':'set local role anon');await db.query("select set_config('request.jwt.claim.sub',$1,true)",[uid||'']);const r=await db.query(sql,args);await db.exec('commit');return r.rows as any[];}catch(e){await db.exec('rollback');throw e;}}
 const checklist={business_name:true,contact_email:true,relationship_evidence:true,existing_clients_checked:true,identity_resolved:true,ready:true};
-const payload={analysis_version:2,checklist,client_name:'Acme Studio',contact_email:'alex@acme.test',client_id:null,parent_id:null,task_id:null,due_date:'2026-11-10',estimated_hours:2};
+const payload={analysis_version:3,checklist,client_name:'Acme Studio',contact_email:'alex@acme.test',client_id:null,parent_id:null,task_id:null,due_date:'2026-11-10',estimated_hours:2};
 async function suggestion(uid=ids[3],kind='client',key=crypto.randomUUID(),patch={}){return (await db.query<{id:string}>(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,$2,$3,'November campaign','Write November copy',$4,'thread-1','Please prepare the November campaign') returning id`,[uid,kind,key,JSON.stringify({...payload,...patch})])).rows[0].id;}
 let clientId:string,taskId:string;
 test('supervisor is staff but cannot manage accounts or visibility',async()=>{
@@ -181,8 +181,8 @@ test('review memory records decisions privately with scoped rejection reasons',a
 test('reassessment queues only own pending conversations, preserves decisions and needs staff',async()=>{
  await db.query("insert into public.sot_connections(user_id,email) values($1,'employee@example.test') on conflict do nothing",[ids[3]]);
  const s=await suggestion(ids[3],'task');
- await as(ids[3],'select public.sot_recheck_pending()');
- assert.ok((await db.query('select * from public.sot_recheck_queue where user_id=$1',[ids[3]])).rows.length);
+ await assert.rejects(as(ids[3],'select public.sot_recheck_pending()'),/retired/);
+ assert.equal((await db.query('select * from public.sot_recheck_queue where user_id=$1',[ids[3]])).rows.length,0);
  assert.equal((await db.query('select status from public.sot_suggestions where id=$1',[s])).rows[0].status,'pending');
  await assert.rejects(as(ids[4],'select public.sot_recheck_pending()'),/Staff access/);
  await assert.rejects(as(ids[3],'select * from public.sot_recheck_queue'),/permission denied/);
@@ -209,7 +209,7 @@ test('incremental scans use a stable window and overlap without repeating the wh
  const start='2026-10-04T12:00:00Z',last='2026-10-04T09:00:00Z';
  assert.match(incrementalQuery('sierra@sunrosecreative.com',start,last),new RegExp('after:'+Math.floor((Date.parse(last)-86400000)/1000)));
  assert.match(incrementalQuery('sierra@sunrosecreative.com',start,last),new RegExp('before:'+Math.ceil(Date.parse(start)/1000)));
- assert.match(incrementalQuery('sierra@sunrosecreative.com',start,null),new RegExp('after:'+Math.floor((Date.parse(start)-90*86400000)/1000)));
+ assert.match(incrementalQuery('sierra@sunrosecreative.com',start,null),new RegExp('after:'+Math.floor((Date.parse(start)-7*86400000)/1000)));
 });
 test('confirmed client setup is repeatable and seeds only approved domains',async()=>{
  const setup=await readFile(new URL('../supabase/deployment/confirmed_clients.sql',import.meta.url),'utf8');
@@ -236,4 +236,34 @@ test('prototype databases without a share-token default can create SOT clients',
  await db.exec(await readFile(new URL('../supabase/migrations/20261004010000_client_share_token_default.sql',import.meta.url),'utf8'));
  const row=(await db.query("insert into public.clients(name) values('Default regression') returning share_token")).rows[0];
  assert.equal((row.share_token as string).length,72);
+});
+
+
+test('known participants and contextual names suppress new-client discovery',async()=>{
+ const {clientContext}=await import('../supabase/functions/sot/identity.ts');
+ const clients=[{id:'lat',name:'LA Times Studios',domains:['latimes.com'],aliases:['LA Times']},{id:'rose',name:'Rose Bowl Stadium',emails:['mlee@rosebowlstadium.com']}];
+ const sponsor=clientContext(['sierra@sunrosecreative.com','kay@latimes.com'],'City of El Segundo promotional assets',clients);
+ assert.equal(sponsor.matched?.id,'lat');assert.equal(sponsor.allowNewClient,false);
+ assert.equal(clientContext(['vendor@example.test'],'Quote for Rose Bowl Stadium',clients).allowNewClient,false);
+ assert.equal(clientContext(['new@example.test'],'A separate new business',clients).allowNewClient,true);
+ const mixed=clientContext(['kay@latimes.com','mlee@rosebowlstadium.com'],'Shared project',clients);
+ assert.equal(mixed.matched,null);assert.equal(mixed.candidates.length,2);assert.equal(mixed.allowNewClient,false);
+});
+test('current-work reservations enforce burst, daily, monthly and staff restrictions',async()=>{
+ await db.exec('delete from public.sot_call_reservations');
+ await db.query("update public.sot_usage set reserved_calls=0,analysis_limit=600 where month=to_char(now() at time zone 'UTC','YYYY-MM')");
+ await assert.rejects(as(ids[0],'select public.sot_reserve_current_calls(1)'),/permission denied/);
+ await assert.rejects(db.query('select public.sot_reserve_current_calls(3)'),/Invalid/);
+ for(let i=0;i<10;i++)assert.equal((await db.query('select public.sot_reserve_current_calls(1) as ok')).rows[0].ok,true);
+ assert.equal((await db.query('select public.sot_reserve_current_calls(1) as ok')).rows[0].ok,false);
+ await db.exec("update public.sot_call_reservations set reserved_at=now()-interval '4 hours'");
+ for(let i=0;i<5;i++)assert.equal((await db.query('select public.sot_reserve_current_calls(2) as ok')).rows[0].ok,true);
+ await db.exec("update public.sot_call_reservations set reserved_at=now()-interval '4 hours'");
+ // Set all twenty reservations to the UTC day's start and evaluate the daily cap when that is >3h ago.
+ await db.exec("update public.sot_call_reservations set reserved_at=date_trunc('day',now() at time zone 'UTC') at time zone 'UTC'");
+ assert.equal((await db.query('select public.sot_reserve_current_calls(1) as ok')).rows[0].ok,false);
+ await db.exec('delete from public.sot_call_reservations');
+ await db.query("update public.sot_usage set reserved_calls=599 where month=to_char(now() at time zone 'UTC','YYYY-MM')");
+ assert.equal((await db.query('select public.sot_reserve_current_calls(2) as ok')).rows[0].ok,false);
+ assert.equal((await db.query('select public.sot_reserve_current_calls(1) as ok')).rows[0].ok,true);
 });

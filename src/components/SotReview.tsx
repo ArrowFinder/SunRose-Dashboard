@@ -22,7 +22,7 @@ export function SotReview() {
   const db=getSupabase();
   const results=await Promise.all([
    db.from('sot_connections').select('*').eq('user_id',userId).maybeSingle(),
-   db.from('sot_suggestions').select('*').eq('user_id',userId).eq('status','pending').order('created_at').limit(200),
+   db.from('sot_suggestions').select('*').eq('user_id',userId).eq('status','pending').is('archived_at',null).order('created_at',{ascending:false}).limit(200),
    db.from('sot_notifications').select('*').eq('recipient_id',userId).is('read_at',null).order('created_at',{ascending:false}).limit(50),
   ]);
   if(results.some(r=>r.error)) throw new Error('SOT setup is not complete yet. Your existing dashboard is still available.');
@@ -45,7 +45,7 @@ export function SotReview() {
    if(!mounted.current)return;
    await load();setMessage(`Reading your conversations… ${batches} or fewer threads checked this session.`);
   }
-  if(mounted.current)setMessage(more?'Scan paused. Your progress is saved; choose Continue scan when ready.':'Scan complete. Review suggested clients first, then tasks.');
+  if(mounted.current)setMessage(more?'Scan paused. Your progress is saved; choose Continue scan when ready.':'Scan complete. Review current task suggestions.');
  },'scan');}
  useEffect(()=>{
   if(loaded&&configured&&connection&&params.get('connection')==='connected'){
@@ -58,23 +58,23 @@ export function SotReview() {
   await load();await refresh?.();
   setMessage(add?(s.kind==='client'?'Client added. You can now add their suggested tasks.':s.kind==='task'?'Task is on the task list. Any matching existing task was kept without creating a duplicate.':'Task updated.'):'Suggestion deleted. Your email was not changed.');
  },s.id);}
- const sorted=[...suggestions].sort((a,b)=>Number(b.kind==='client')-Number(a.kind==='client'));
+ const sorted=[...suggestions].sort((a,b)=>Number(a.kind==='client')-Number(b.kind==='client'));
  return <section className="card sot-panel" aria-label="SOT — Source of Truth">
   <div className="row" style={{justifyContent:'space-between',flexWrap:'wrap'}}>
    <div><p className="sot-eyebrow">SOURCE OF TRUTH</p><h2>SOT · Suggestions {suggestions.length>0&&<span className="badge">{suggestions.length}</span>}</h2></div>
    <span className="badge">You review. SOT prepares.</span>
   </div>
-  <p className="muted">Discover clients and work from the last 90 days of received and sent email. Only you see your suggestions. Nothing becomes official until you add it.</p>
+  <p className="muted">Find current work in received and sent email, starting with the last seven days. Existing client relationships come first. Only you see your suggestions. Nothing becomes official until you add it.</p>
   {connection?<div className="sot-connection">
    <strong>{connection.email}</strong><span className="muted"> · Read-only Gmail access</span>
-   <p className="muted">{connection.last_scan_at?`Last completed scan: ${new Date(connection.last_scan_at).toLocaleString()}`:connection.scan_started_at?`Initial discovery in progress · ${connection.scanned_threads} conversations checked.`:'Initial discovery has not completed.'}</p>
+   <p className="muted">{connection.last_scan_at?`Last completed scan: ${new Date(connection.last_scan_at).toLocaleString()}`:connection.scan_started_at?`Recent email scan in progress · ${connection.scanned_threads} conversations checked.`:'Ready to check the last seven days of email.'}</p>
+   <p className="muted">AI allowance: up to 10 calls per three hours and 20 per day across the workspace, within the monthly limit. Earlier unreviewed suggestions are retained outside this list.</p>
    {connection.last_error&&<p role="alert">Scan paused: {connection.last_error}</p>}
-   <p className="muted">{connection.auto_scan?'Automatic checks are enabled every three hours once discovery completes.':'Automatic checks are paused.'} Next eligible check: {new Date(connection.next_scan_at).toLocaleString()}.</p>
+   <p className="muted">{connection.auto_scan?'Automatic checks run every three hours; small batches continue between checks within spending limits.':'Automatic checks are paused.'} Next eligible check: {new Date(connection.next_scan_at).toLocaleString()}.</p>
    <button className="btn" disabled={!!busy} onClick={()=>void run(async()=>{const r=await getSupabase().rpc('sot_set_auto_scan',{enabled:!connection.auto_scan});if(r.error)throw new Error(r.error.message);await load();},'auto')}>{connection.auto_scan?'Pause automatic checks':'Enable automatic checks'}</button>
    <div className="row" style={{flexWrap:'wrap'}}>
-    <button className="btn btn-primary" disabled={!!busy||!configured} onClick={()=>void scan()}>{busy==='scan'?'Reading email…':connection.scan_cursor?'Continue scan':'Scan emails'}</button>
+    <button className="btn btn-primary" disabled={!!busy||!configured} onClick={()=>void scan()}>{busy==='scan'?'Reading email…':connection.scan_cursor?'Continue scan':'Scan recent emails'}</button>
     {busy==='scan'&&<button className="btn" onClick={()=>{stop.current=true;setMessage('Pausing after the current batch…');}}>Pause scan</button>}
-    <button className="btn" disabled={!!busy||!suggestions.length} onClick={()=>void run(async()=>{const r=await getSupabase().rpc('sot_recheck_pending',{});if(r.error)throw new Error(r.error.message);await load();setMessage('Pending conversations queued for reassessment. Choose Scan emails to run now. Accepted and deleted decisions are preserved.');},'recheck')}>Reassess pending suggestions</button>
     <button className="btn" disabled={!!busy||!configured} onClick={()=>void run(async()=>{const r=await sotAction('connect');if(r.url)window.location.assign(r.url);},'connect')}>Reconnect</button>
     <button className="btn btn-danger" disabled={!!busy} onClick={()=>void run(async()=>{await sotAction('disconnect');await load();setMessage('Gmail disconnected. Pending suggestions were removed; accepted tasks remain.');},'disconnect')}>Disconnect Gmail</button>
    </div>
@@ -85,9 +85,9 @@ export function SotReview() {
   {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
   {notifications.length>0&&<div className="stack"><h3>New tasks from SOT</h3>{notifications.map(n=>{const task=data.workItems.find(t=>t.id===n.task_id);return <div className="sot-notification" key={n.id}><p>{n.message}</p><div className="row">{task&&<Link to={`/client/${task.clientId}?month=${task.yearMonth}&task=${task.id}`}>View task</Link>}<button className="btn btn-ghost" disabled={!!busy} onClick={()=>void run(async()=>{const r=await getSupabase().rpc('sot_mark_read',{notification_id:n.id});if(r.error)throw new Error(r.error.message);await load();},n.id)}>Mark read</button></div></div>;})}</div>}
   {loaded&&suggestions.length===0&&<p className="muted">No suggestions waiting for review.{connection?' Scan emails to look for client requests.':''}</p>}
-  <div className="stack">{sorted.map((s,i)=><div key={s.id}>{(i===0||sorted[i-1].kind==='client'&&s.kind!=='client')&&<h3>{s.kind==='client'?'Possible Clients':'Task Suggestions'}</h3>}<article className="sot-suggestion" key={s.id}>
+  <div className="stack">{sorted.map((s,i)=><div key={s.id}>{(i===0||(sorted[i-1].kind==='client')!==(s.kind==='client'))&&<h3>{s.kind==='client'?'Possible Clients':'Task Suggestions'}</h3>}<article className="sot-suggestion" key={s.id}>
    <span className="badge">{s.kind==='client'?'Suggested client':s.kind==='complete'?'Suggested completion':s.kind==='update'?'Suggested update':s.payload.parent_id?'Suggested subtask':'Suggested task'}</span>
-   {s.payload.analysis_version!==2&&<p role="status">From the earlier scan: reassess this suggestion before adding it.</p>}
+   {s.payload.analysis_version!==3&&<p role="status">From the earlier scan: reassess this suggestion before adding it.</p>}
    <h3>{s.title}</h3><p>{s.description}</p>
    <p className="muted">Client: {s.payload.client_name}{s.kind!=='client'&&<> · {s.kind==='task'?`Assigned to: ${currentUser?.name}`:'Existing assignee stays unchanged'} · {s.payload.due_date?`Due: ${s.payload.due_date}`:'No deadline specified'}{s.payload.estimated_hours!==null?` · Estimated: ${s.payload.estimated_hours}h`:' · No hours estimate supplied'}</>}</p>
    {s.kind==='client'&&<p className="muted">{s.payload.contact_email} · Retainer starts at 0 hours until configured.</p>}
@@ -97,7 +97,7 @@ export function SotReview() {
    <details><summary>Why SOT suggested this</summary><blockquote>{s.evidence}</blockquote><p>{s.source_subject}</p>{connection&&<a href={`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(connection.email)}#all/${encodeURIComponent(s.source_thread)}`} target="_blank" rel="noreferrer">Open source email</a>}</details>
    <label>Reason if deleting (optional)<select value={reasons[s.id]||'unspecified'} onChange={e=>setReasons({...reasons,[s.id]:e.target.value})}><option value="unspecified">Just dismiss this suggestion</option><option value="vendor">Vendor, not a client</option><option value="sponsor_partner">Sponsor or partner</option><option value="not_client">Not a client</option><option value="duplicate">Duplicate</option><option value="already_done">Already completed</option><option value="not_our_responsibility">Someone else's responsibility</option><option value="not_actionable">Not actionable</option></select></label>
    <div className="row" style={{marginTop:'1rem'}}>
-    <button className="btn btn-primary" disabled={!!busy||s.payload.analysis_version!==2||(s.kind==='client'&&!s.payload.checklist?.ready)||s.payload.checklist?.identity_resolved===false} onClick={()=>void decide(s,true)}>{busy===s.id?'Saving…':s.kind==='complete'?'Mark complete':s.kind==='update'?'Apply update':'Add'}</button>
+    <button className="btn btn-primary" disabled={!!busy||s.payload.analysis_version!==3||(s.kind==='client'&&!s.payload.checklist?.ready)||s.payload.checklist?.identity_resolved===false} onClick={()=>void decide(s,true)}>{busy===s.id?'Saving…':s.kind==='complete'?'Mark complete':s.kind==='update'?'Apply update':'Add'}</button>
     <button className="btn btn-danger" disabled={!!busy} onClick={()=>void decide(s,false)}>Delete</button>
    </div>
   </article></div>)}</div>
