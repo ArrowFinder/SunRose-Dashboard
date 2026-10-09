@@ -293,3 +293,40 @@ test('only owners/admins can save private client context and billing',async()=>{
  const view=await as(null,"select public.shared_client_view($1,'2026-11') as view",[(await db.query('select share_token from public.clients where id=$1',[clientId])).rows[0].share_token]);
  assert.equal(view.length,1);assert.ok(!JSON.stringify(view).includes('Sponsor belongs'));assert.ok(!JSON.stringify(view).includes('hourly_rate'));
 });
+
+test('archive and restore preserve task history, protect active clocks and restrict roles',async()=>{
+ const cid=(await db.query("insert into public.clients(name) values('Archive fixture') returning id")).rows[0].id;
+ const root=(await db.query("insert into public.work_items(client_id,title,year_month) values($1,'Parent','2026-10') returning id",[cid])).rows[0].id;
+ const child=(await db.query("insert into public.work_items(client_id,parent_id,title,year_month,client_visible) values($1,$2,'Child','2026-10',true) returning id",[cid,root])).rows[0].id;
+ await db.query("insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values($1,$2,'2026-10-01 10:00Z','2026-10-01 11:00Z',60)",[child,ids[3]]);
+ await assert.rejects(as(ids[0],'delete from public.work_items where id=$1',[child]),/time records/);
+ await assert.rejects(as(ids[3],'select public.set_task_archived($1,true)',[root]),/Owner or admin/);
+ await as(ids[3],'select public.start_work_timer($1,$2)',[child,crypto.randomUUID()]);
+ await assert.rejects(as(ids[0],'select public.set_task_archived($1,true)',[root]),/running timer/);
+ await assert.rejects(as(ids[0],'select public.set_client_archived($1,true)',[cid]),/running timers/);
+ await db.query('delete from public.active_timers where work_item_id=$1',[child]);
+ await as(ids[0],'select public.set_task_archived($1,true)',[root]);
+ assert.equal((await db.query('select * from public.work_items where client_id=$1 and archived_at is not null',[cid])).rows.length,2);
+ assert.equal((await db.query('select * from public.time_entries where work_item_id=$1',[child])).rows.length,1);
+ await assert.rejects(as(ids[3],'select public.start_work_timer($1,$2)',[child,crypto.randomUUID()]),/Restore archived/);
+ await assert.rejects(as(ids[0],'select public.set_task_archived($1,false)',[child]),/parent task first/);
+ await as(ids[1],'select public.set_task_archived($1,false)',[root]);
+ assert.equal((await db.query('select * from public.work_items where client_id=$1 and archived_at is not null',[cid])).rows.length,0);
+ await as(ids[0],'select public.set_client_archived($1,true)',[cid]);
+ const token=(await db.query('select share_token from public.clients where id=$1',[cid])).rows[0].share_token;
+ await assert.rejects(as(null,"select public.shared_client_view($1,'2026-10')",[token]),/not found/);
+ await assert.rejects(as(ids[3],"insert into public.work_items(client_id,title,year_month) values($1,'New','2026-10')",[cid]),/Restore the client/);
+ await as(ids[0],'select public.set_client_archived($1,false)',[cid]);
+ assert.equal((await db.query('select client_visible from public.work_items where id=$1',[child])).rows[0].client_visible,false);
+ const unused=(await db.query("insert into public.work_items(client_id,title,year_month) values($1,'Disposable','2026-10') returning id",[cid])).rows[0].id;
+ await as(ids[0],'delete from public.work_items where id=$1',[unused]);
+ assert.equal((await db.query('select * from public.work_items where id=$1',[unused])).rows.length,0);
+});
+
+test('legacy manual time cannot be hard deleted',async()=>{
+ const cid=(await db.query("insert into public.clients(name) values('Legacy archive fixture') returning id")).rows[0].id;
+ const id=(await as(ids[0],"insert into public.work_items(client_id,title,year_month,actual_hours) values($1,'Legacy history','2026-10',3) returning id",[cid]))[0].id;
+ await assert.rejects(as(ids[0],'delete from public.work_items where id=$1',[id]),/time records/);
+ await as(ids[0],'select public.set_task_archived($1,true)',[id]);
+ assert.equal((await db.query('select actual_hours from public.work_items where id=$1',[id])).rows[0].actual_hours,'3');
+});

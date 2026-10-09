@@ -56,11 +56,11 @@ async function scan(uid:string) {
   const q=new URLSearchParams({q:incrementalQuery(c.email,started,c.last_scan_at,c.scan_floor),maxResults:'1'});if(c.scan_cursor) q.set('pageToken',c.scan_cursor);
   if(!c.scan_started_at) checked(await db.from('sot_connections').update({scan_started_at:started,scanned_threads:0,last_error:null}).eq('user_id',uid));
   const list=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+q,{headers});
-  const clientRows=checked(await db.from('clients').select('id,name').order('created_at').limit(1000))||[];
+  const clientRows=checked(await db.from('clients').select('id,name,archived_at').order('created_at').limit(1000))||[];
   const contactRows=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
   const profiles=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').limit(1000))||[];
   const clients=clientRows.map((c:any)=>({...c,...profiles.find((p:any)=>p.client_id===c.id),emails:contactRows.filter((r:any)=>r.client_id===c.id).map((r:any)=>r.email)}));
-  const tasks=checked(await db.from('work_items').select('id,client_id,parent_id,title,status,due_date,updated_at').order('updated_at',{ascending:false}).limit(300))||[];
+  const tasks=checked(await db.from('work_items').select('id,client_id,parent_id,title,status,due_date,updated_at,archived_at').order('updated_at',{ascending:false}).limit(300))||[];
   const reviews=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
   let made=0;
   for(const ref of list.threads||[]) {
@@ -79,6 +79,7 @@ async function scan(uid:string) {
    const relationship=clientContext(contacts,messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
    const relevantClients=[...clients].sort((a:any,b:any)=>Number(relationship.candidates.some(c=>c.id===b.id))-Number(relationship.candidates.some(c=>c.id===a.id))).map((c:any)=>({...c,description:bounded(c.description||'',400),services:bounded(c.services||'',400),context_notes:bounded(c.context_notes||'',1600)}));
    const matched=relationship.matched;
+   if(matched && clients.find((c:any)=>c.id===matched.id)?.archived_at) continue;
    const relevantReviews=reviews.filter((r:any)=>contacts.includes(r.contact_email)||r.client_name===matched?.name).slice(0,12);
    const context={clients:relevantClients.slice(0,80),tasks:tasks.slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
    let selected=messages;
@@ -106,9 +107,9 @@ async function scan(uid:string) {
     if(p.kind!=='client'&&matched) {p.client_id=matched.id;p.client_name=matched.name;}
     if(p.kind!=='client' && p.responsibility!=='sunrose') continue;
     if(p.kind==='client') {p.parent_id=null;p.task_id=null;p.due_date=null;p.estimated_hours=null;}
-    if(p.client_id && !clients.some((x:any)=>x.id===p.client_id)) continue;
+    if(p.client_id && !clients.some((x:any)=>x.id===p.client_id&&!x.archived_at)) continue;
     const target=p.task_id?tasks.find((t:any)=>t.id===p.task_id):null;
-    if(['update','complete'].includes(p.kind) && (!target || target.client_id!==p.client_id || tasks.some((t:any)=>t.parent_id===target.id))) continue;
+    if(['update','complete'].includes(p.kind) && (!target || target.archived_at || target.client_id!==p.client_id || tasks.some((t:any)=>t.parent_id===target.id))) continue;
     if(p.parent_id && !tasks.some((t:any)=>t.id===p.parent_id&&!t.parent_id&&t.client_id===p.client_id)) continue;
     const source=selected.find((m:any)=>m.id===p.source_message_id);
     if(Date.parse(source.date)<Date.parse(context.current_window.after)||Date.parse(source.date)>=Date.parse(started)) continue;

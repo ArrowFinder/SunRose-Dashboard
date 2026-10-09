@@ -1,12 +1,17 @@
 import { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
 import { isOwnerOrAdmin } from "../lib/permissions";
+import { getSupabase } from "../lib/supabaseClient";
 import { downloadBackup } from "../lib/storage";
 import { hexOrDefault } from "../lib/color";
 import type { Client } from "../lib/types";
 export function ClientEditor({ client }: { client: Client }) {
+  const navigate=useNavigate();
+  const [confirmAction,setConfirmAction]=useState<"archive"|"restore"|"delete"|null>(null);
+  const [acting,setActing]=useState(false);
   const {
+    data,refresh,cloud,
     updateClient,
     deleteClient,
     regenerateShareToken,
@@ -137,20 +142,15 @@ export function ClientEditor({ client }: { client: Client }) {
           >
             Replace link
           </button>{" "}
-          <button
-            className="btn btn-danger"
-            disabled={saving}
-            onClick={() => {
-              if (
-                confirm(
-                  `Delete ${client.name}? Clients with tasks are protected from deletion.`,
-                )
-              )
-                void run(() => deleteClient(client.id), "Client deleted.");
-            }}
-          >
-            Delete empty client
-          </button>
+          <button className="btn" disabled={saving||acting} onClick={()=>setConfirmAction(client.archivedAt?'restore':'archive')}>{client.archivedAt?'Restore client':'Archive client'}</button>
+          <button className="btn btn-danger" disabled={saving||acting||data.workItems.some(w=>w.clientId===client.id)} onClick={()=>setConfirmAction('delete')}>Delete empty client</button>
+          {data.workItems.some(w=>w.clientId===client.id)&&<p className="muted">This client has tasks. Archive the client to hide it while preserving its tasks and time history.</p>}
+          {confirmAction&&<div className="action-confirm"><p>{confirmAction==='delete'?`Permanently delete ${client.name}?` : confirmAction==='archive'?`Archive ${client.name}? It will leave the active client list and calendar. Time history is retained and client sharing is disabled.`:'Restore this client to the active list? Tasks remain private until shared again.'}</p><button className="btn btn-primary" disabled={acting} onClick={async()=>{setActing(true);await run(async()=>{
+            if(confirmAction==='delete'){await deleteClient(client.id);navigate('/clients');}
+            else if(cloud){const r=await getSupabase().rpc('set_client_archived',{client_id:client.id,archived:confirmAction==='archive'});if(r.error)throw new Error(r.error.message);await refresh?.();}
+            else await updateClient(client.id,{archivedAt:confirmAction==='archive'?new Date().toISOString():null});
+            setConfirmAction(null);
+          },'Client updated.');setActing(false);}}>Confirm {confirmAction}</button><button className="btn" disabled={acting} onClick={()=>setConfirmAction(null)}>Cancel</button></div>}
         </>
       )}
       {notice && <p role="status">{notice}</p>}
@@ -159,6 +159,7 @@ export function ClientEditor({ client }: { client: Client }) {
 }
 export function CloudClientsPage() {
   const { data, currentUser, addClient, saving } = useAppState();
+  const [showArchived,setShowArchived]=useState(false);
   const [name, setName] = useState("");
   const [hours, setHours] = useState(0);
   const [error, setError] = useState("");
@@ -213,7 +214,8 @@ export function CloudClientsPage() {
           {error && <p role="alert">{error}</p>}
         </form>
       </details>}
-      <div className="client-directory">{[...data.clients].sort((a,b)=>a.name.localeCompare(b.name)).map(c=><Link className="card client-directory-card" key={c.id} to={`/client/${c.id}`} style={{borderLeft:`4px solid ${hexOrDefault(c)}`}}><h2>{c.name}</h2><p className="muted">{c.billingType==='hourly'?'Hourly':'Retainer'} · {data.workItems.filter(w=>w.clientId===c.id&&!w.parentId&&w.status!=='done').length} open main tasks</p><span>Open client calendar →</span></Link>)}</div>
+      <label><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Show archived clients</label>
+      <div className="client-directory">{data.clients.filter(c=>showArchived||!c.archivedAt).sort((a,b)=>a.name.localeCompare(b.name)).map(c=><Link className="card client-directory-card" key={c.id} to={`/client/${c.id}`} style={{borderLeft:`4px solid ${hexOrDefault(c)}`}}><h2>{c.name}{c.archivedAt?" · Archived":""}</h2><p className="muted">{c.billingType==='hourly'?'Hourly':'Retainer'} · {data.workItems.filter(w=>w.clientId===c.id&&!w.archivedAt&&!w.parentId&&w.status!=='done').length} open main tasks</p><span>Open client calendar →</span></Link>)}</div>
       {manage && (
         <section className="card">
           <h2>Backup</h2>
