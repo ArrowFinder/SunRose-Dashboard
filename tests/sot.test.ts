@@ -267,3 +267,10 @@ test('current-work reservations enforce burst, daily, monthly and staff restrict
  assert.equal((await db.query('select public.sot_reserve_current_calls(2) as ok')).rows[0].ok,false);
  assert.equal((await db.query('select public.sot_reserve_current_calls(1) as ok')).rows[0].ok,true);
 });
+
+test('tasks for an unrecognized business require client clarification',()=>{
+ const p={...payload,kind:'task',client_name:'P1M',contact_email:'person@partner.test',relationship_type:'client',relationship_evidence:'Please arrange arrival'} as unknown as Proposal;
+ const result=clientChecklist(p,[{id:'rose',name:'Rose Bowl Stadium'}],'Please arrange arrival');
+ assert.equal(result.identity_resolved,false);assert.equal(result.ready,false);
+ assert.match(result.explanation,/not confirmed/);
+});
