@@ -7,7 +7,7 @@ import { taskSummary } from "../lib/taskTree";
 import { CalendarPage } from "./CalendarPage";
 
 export function Overview() {
-  const { data, currentUser } = useAppState();
+  const { data, currentUser, viewPath = (p:string)=>p } = useAppState();
   if (currentUser?.role === "client") return currentUser.clientId
     ? <Navigate to={`/client/${currentUser.clientId}`} replace />
     : <div className="card"><h1>Welcome</h1><p>Your account is waiting for the owner to assign access.</p></div>;
@@ -28,13 +28,13 @@ export function Overview() {
       <div className="overview-section-heading"><h2 id="overview-todo">To-do list</h2><span className="badge">{tasks.length} open</span></div>
       <p className="muted">Earliest deadlines first, including subtasks. Tasks without a due date appear last.</p>
       <div className="overview-counts"><span className={overdue?"badge badge-danger":"badge"}>{overdue} overdue</span><span className="badge">{dueToday} due today</span></div>
-      {tasks.length===0 ? <p>No open tasks. Review SOT suggestions below or <Link to="/clients">open a client</Link> to add work.</p> :
+      {tasks.length===0 ? <p>No open tasks. Review SOT suggestions below or <Link to={viewPath("/clients")}>open a client</Link> to add work.</p> :
         <ul className="overview-todos">{tasks.map(w=>{
           const client=clients.find(c=>c.id===w.clientId)!;
           const parent=data.workItems.find(p=>p.id===w.parentId);
           const due=w.dueDate;
           const dateLabel=due?new Date(`${due.slice(0,10)}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"No due date";
-          return <li key={w.id}><Link className="overview-todo" to={`/client/${w.clientId}/task/${w.id}`} style={{borderLeftColor:hexOrDefault(client)}}>
+          return <li key={w.id}><Link className="overview-todo" to={viewPath(`/client/${w.clientId}/task/${w.id}`)} style={{borderLeftColor:hexOrDefault(client)}}>
             <div><strong>{w.title}</strong><span className="overview-task-context">{client.name} · {data.users.find(u=>u.id===w.assignedUserId)?.name||"Unassigned"}</span>{parent&&<span className="overview-task-context">Subtask of {parent.title}</span>}</div>
             <span className={`badge ${due&&due<today?"badge-danger":due===today?"badge-warn":""}`}>{due&&due<today?"Overdue · ":due===today?"Today · ":""}{dateLabel}</span>
           </Link></li>;

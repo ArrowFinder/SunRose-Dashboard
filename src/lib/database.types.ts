@@ -111,6 +111,7 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      support_user_snapshot: { Args: { target_id:string }; Returns: import('./support').SupportSnapshot };
       set_task_archived: { Args:{task_id:string;archived:boolean};Returns:undefined };
       set_client_archived: { Args:{client_id:string;archived:boolean};Returns:undefined };
       save_client_context: { Args: { cid:string; description_value:string;services_value:string;notes_value:string;aliases_value:string[];domains_value:string[];contacts_value:string[] }; Returns: undefined };

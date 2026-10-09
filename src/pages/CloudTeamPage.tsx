@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
 import { isOwnerOrAdmin } from "../lib/permissions";
 import type { User, UserRole } from "../lib/types";
@@ -29,6 +29,7 @@ function Member({ member }: { member: User }) {
       <p>
         {member.name} {member.active === false ? "(inactive)" : ""}
       </p>
+      {isOwnerOrAdmin(currentUser) && member.id!==currentUser?.id && <p><Link className="btn" to={`/support/${member.id}`}>View dashboard as {member.name}</Link></p>}
       <fieldset disabled={saving || locked} style={{ border: 0, padding: 0 }}>
         <div className="row">
           <label>

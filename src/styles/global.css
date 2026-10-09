@@ -645,3 +645,6 @@ table.data tr:hover td {
 .overview-task-context { display:block; color:var(--muted); font-size:.875rem; margin-top:.3rem; }
 .overview-todo .badge { flex-shrink:0; }
 @media(max-width:640px) { .overview-todo { align-items:flex-start; flex-direction:column; gap:.6rem; } }
+.support-banner { border:2px solid var(--accent); background:var(--accent-soft); }
+.support-banner h1 { font-size:1.35rem; }
+.support-banner label { display:block; margin-top:1rem; }

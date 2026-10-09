@@ -330,3 +330,33 @@ test('legacy manual time cannot be hard deleted',async()=>{
  await as(ids[0],'select public.set_task_archived($1,true)',[id]);
  assert.equal((await db.query('select actual_hours from public.work_items where id=$1',[id])).rows[0].actual_hours,'3');
 });
+
+test('support snapshots are restricted to active Owner/Admin and never expose credentials',async()=>{
+ const sid=await suggestion(ids[3],'task');
+ for(const uid of [null,ids[2],ids[3],ids[4]])await assert.rejects(as(uid,'select public.support_user_snapshot($1)',[ids[3]]),/permission denied|Owner or admin/);
+ for(const uid of [ids[0],ids[1]]){
+  const result=(await as(uid,'select public.support_user_snapshot($1) as snapshot',[ids[3]]))[0].snapshot;
+  assert.equal(result.user.id,ids[3]);assert.ok(result.suggestions.some((s:any)=>s.id===sid));
+  assert.equal('credentials' in result,false);assert.equal(JSON.stringify(result).includes('encrypted_refresh'),false);
+ }
+ assert.equal((await as(ids[0],'select * from public.sot_suggestions where id=$1',[sid])).length,0);
+ await assert.rejects(as(ids[1],'select public.sot_accept($1)',[sid]),/not found/);
+ const audit=(await db.query<any>('select * from public.support_view_audit where target_id=$1',[ids[3]])).rows;
+ assert.deepEqual(audit.map(a=>a.actor_id).sort(),[ids[0],ids[1]].sort());
+ await db.query('update public.profiles set active=false where id=$1',[ids[1]]);
+ await assert.rejects(as(ids[1],'select public.support_user_snapshot($1)',[ids[3]]),/Owner or admin/);
+ await db.query('update public.profiles set active=true where id=$1',[ids[1]]);
+});
+test('client support snapshot uses the shared projection and inactive users get no private data',async()=>{
+ const cid=(await db.query<any>("insert into public.clients(name) values('Support privacy fixture') returning id")).rows[0].id;
+ await db.query('insert into public.client_members(user_id,client_id) values($1,$2) on conflict(user_id) do update set client_id=excluded.client_id',[ids[4],cid]);
+ await as(ids[0],"insert into public.work_items(client_id,title,year_month,client_visible) values($1,'Shared fixture','2026-10',true),($1,'Private fixture','2026-10',false)",[cid]);
+ const view=(await as(ids[1],'select public.support_user_snapshot($1) as snapshot',[ids[4]]))[0].snapshot;
+ assert.deepEqual(view.clientView.items.map((w:any)=>w.title),['Shared fixture']);
+ assert.equal('suggestions' in view,false);assert.equal('share_token' in view.clientView.client,false);
+ assert.equal('actualHours' in view.clientView.items[0],false);
+ await db.query('update public.profiles set active=false where id=$1',[ids[4]]);
+ const inactive=(await as(ids[0],'select public.support_user_snapshot($1) as snapshot',[ids[4]]))[0].snapshot;
+ assert.equal(inactive.inactive,true);assert.equal('clientView' in inactive,false);
+ await db.query('update public.profiles set active=true where id=$1',[ids[4]]);
+});

@@ -34,11 +34,12 @@ function CalendarTaskChip({
   client: Client | undefined;
   color: string;
 }) {
+  const {viewPath=(p:string)=>p}=useAppState();
   const label = client?.name ?? "Unknown client";
   return (
     <div className="calendar-chip-wrap">
       <Link
-        to={`/client/${w.clientId}/task/${w.id}`}
+        to={viewPath(`/client/${w.clientId}/task/${w.id}`)}
         className="calendar-chip"
         style={{ background: color, color: "#fff" }}
       >
@@ -76,7 +77,7 @@ function CalendarTaskChip({
 }
 
 export function CalendarPage({clientId, embedded=false}:{clientId?:string; embedded?:boolean}={}) {
-  const { data, currentUser } = useAppState();
+  const { data, currentUser, viewPath=(p:string)=>p } = useAppState();
   const [showSubtasks, setShowSubtasks] = useState(!!clientId || embedded);
   const [cursor, setCursor] = useState(() => new Date());
 
@@ -152,7 +153,7 @@ export function CalendarPage({clientId, embedded=false}:{clientId?:string; embed
           <p className="muted calendar-sidebar-hint">Legend matches chip colors on the grid.</p>
           {legendClients.length === 0 ? (
             <p className="muted" style={{ fontSize: "0.9rem" }}>
-              Add clients under <Link to="/clients">Clients</Link>.
+              Add clients under <Link to={viewPath("/clients")}>Clients</Link>.
             </p>
           ) : (
             <ul className="calendar-legend">
@@ -161,7 +162,7 @@ export function CalendarPage({clientId, embedded=false}:{clientId?:string; embed
                 return (
                   <li key={c.id}>
                     <span className="calendar-legend-swatch" style={{ background: col }} aria-hidden />
-                    <Link to={`/client/${c.id}`} className="calendar-legend-link">
+                    <Link to={viewPath(`/client/${c.id}`)} className="calendar-legend-link">
                       {c.name}
                     </Link>
                   </li>
@@ -197,7 +198,7 @@ export function CalendarPage({clientId, embedded=false}:{clientId?:string; embed
           </div></div>
         </div>
       </div>
-      <section className="card"><h2>Unscheduled</h2><p className="muted">Tasks without a due date, across all months.</p>{data.workItems.filter(w=>!w.archivedAt&&!data.clients.find(c=>c.id===w.clientId)?.archivedAt&&(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks)).map(w=><p key={w.id}><Link to={`/client/${w.clientId}/task/${w.id}`}>{w.parentId?"↳ ":""}{w.title}</Link> · {data.users.find(u=>u.id===w.assignedUserId)?.name??"Unassigned"}</p>)}{!data.workItems.some(w=>!w.archivedAt&&!data.clients.find(c=>c.id===w.clientId)?.archivedAt&&(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks))&&<p>No unscheduled tasks.</p>}</section>
+      <section className="card"><h2>Unscheduled</h2><p className="muted">Tasks without a due date, across all months.</p>{data.workItems.filter(w=>!w.archivedAt&&!data.clients.find(c=>c.id===w.clientId)?.archivedAt&&(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks)).map(w=><p key={w.id}><Link to={viewPath(`/client/${w.clientId}/task/${w.id}`)}>{w.parentId?"↳ ":""}{w.title}</Link> · {data.users.find(u=>u.id===w.assignedUserId)?.name??"Unassigned"}</p>)}{!data.workItems.some(w=>!w.archivedAt&&!data.clients.find(c=>c.id===w.clientId)?.archivedAt&&(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks))&&<p>No unscheduled tasks.</p>}</section>
     </div>
   );
 }
