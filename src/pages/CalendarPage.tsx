@@ -38,7 +38,7 @@ function CalendarTaskChip({
   return (
     <div className="calendar-chip-wrap">
       <Link
-        to={`/client/${w.clientId}?month=${w.yearMonth}&task=${w.parentId ?? w.id}`}
+        to={`/client/${w.clientId}/task/${w.id}`}
         className="calendar-chip"
         style={{ background: color, color: "#fff" }}
       >
@@ -75,9 +75,9 @@ function CalendarTaskChip({
   );
 }
 
-export function CalendarPage() {
+export function CalendarPage({clientId}:{clientId?:string}={}) {
   const { data, currentUser } = useAppState();
-  const [showSubtasks, setShowSubtasks] = useState(false);
+  const [showSubtasks, setShowSubtasks] = useState(!!clientId);
   const [cursor, setCursor] = useState(() => new Date());
 
   const y = cursor.getFullYear();
@@ -87,14 +87,15 @@ export function CalendarPage() {
   const label = cursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   const legendClients = useMemo(() => {
-    const list = clientsVisibleToUser(currentUser, data.clients);
+    const list = clientsVisibleToUser(currentUser, data.clients).filter(c=>!clientId||c.id===clientId);
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
-  }, [currentUser, data.clients]);
+  }, [currentUser, data.clients,clientId]);
 
   const itemsByDay = useMemo(() => {
     const map = new Map<number, typeof data.workItems>();
     const ymPrefix = `${y}-${String(m + 1).padStart(2, "0")}`;
     for (const w of data.workItems) {
+      if (clientId && w.clientId!==clientId) continue;
       if (w.parentId && !showSubtasks) continue;
       if (!w.dueDate || !w.dueDate.startsWith(ymPrefix)) continue;
       const day = Number(w.dueDate.slice(8, 10));
@@ -107,7 +108,7 @@ export function CalendarPage() {
       list.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
     }
     return map;
-  }, [data.workItems, y, m, showSubtasks]);
+  }, [data.workItems, y, m, showSubtasks,clientId]);
 
   if (currentUser?.role === "client") {
     return currentUser.clientId ? (
@@ -130,11 +131,11 @@ export function CalendarPage() {
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.75rem" }}>
         <h1 style={{ margin: 0 }}>Calendar</h1>
         <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-          <button type="button" className="btn" onClick={() => shiftMonth(-1)}>
+          <button type="button" className="btn" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
             ←
           </button>
           <strong>{label}</strong>
-          <button type="button" className="btn" onClick={() => shiftMonth(1)}>
+          <button type="button" className="btn" aria-label="Next month" onClick={() => shiftMonth(1)}>
             →
           </button>
         </div>
@@ -144,8 +145,8 @@ export function CalendarPage() {
       </div>
 
       <label><input type="checkbox" checked={showSubtasks} onChange={e => setShowSubtasks(e.target.checked)} /> Include subtask deadlines</label>
-      <div className="calendar-page-layout">
-        <aside className="calendar-sidebar card">
+      <div className={clientId?"":"calendar-page-layout"}>
+        {!clientId&&<aside className="calendar-sidebar card">
           <h2 className="calendar-sidebar-heading">Clients</h2>
           <p className="muted calendar-sidebar-hint">Legend matches chip colors on the grid.</p>
           {legendClients.length === 0 ? (
@@ -167,10 +168,10 @@ export function CalendarPage() {
               })}
             </ul>
           )}
-        </aside>
+        </aside>}
 
         <div className="calendar-main">
-          <div className="card calendar-grid">
+          <div className="calendar-scroll"><div className="card calendar-grid">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((h) => (
               <div key={h} className="calendar-dow">
                 {h}
@@ -192,9 +193,10 @@ export function CalendarPage() {
                 ) : null}
               </div>
             ))}
-          </div>
+          </div></div>
         </div>
       </div>
+      <section className="card"><h2>Unscheduled</h2><p className="muted">Tasks without a due date, across all months.</p>{data.workItems.filter(w=>(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks)).map(w=><p key={w.id}><Link to={`/client/${w.clientId}/task/${w.id}`}>{w.parentId?"↳ ":""}{w.title}</Link> · {data.users.find(u=>u.id===w.assignedUserId)?.name??"Unassigned"}</p>)}{!data.workItems.some(w=>(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks))&&<p>No unscheduled tasks.</p>}</section>
     </div>
   );
 }

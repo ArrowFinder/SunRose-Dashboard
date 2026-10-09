@@ -8,8 +8,8 @@ export function MonthSnapshot({ snap }: Props) {
   return (
     <div className="snapshot-grid">
       <div className="snapshot-cell">
-        <span>Retainer</span>
-        <strong>{snap.retainer}h</strong>
+        <span>{snap.billingType==="hourly"?"Monthly hour budget":"Included hours"}</span>
+        <strong>{snap.hasHourLimit?`${snap.retainer}h`:"Not set"}</strong>
       </div>
       <div className="snapshot-cell">
         <span>Used (actual)</span>
@@ -24,14 +24,14 @@ export function MonthSnapshot({ snap }: Props) {
         <strong
           style={{
             color:
-              snap.remainingAfterCommitted < 0
+              !snap.hasHourLimit ? "var(--muted)" : snap.remainingAfterCommitted < 0
                 ? "var(--danger)"
                 : snap.remainingAfterCommitted < snap.retainer * 0.15
                   ? "var(--warn)"
                   : "var(--ok)",
           }}
         >
-          {snap.remainingAfterCommitted.toFixed(1)}h
+          {snap.hasHourLimit?`${snap.remainingAfterCommitted.toFixed(1)}h`:"No hour limit"}
         </strong>
       </div>
     </div>

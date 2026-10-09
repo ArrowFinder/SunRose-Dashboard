@@ -72,14 +72,14 @@ export function Overview() {
                 <h2 style={{ margin: 0 }}>{client.name}</h2>
                 {snap.overCommitted ? (
                   <span className="badge badge-danger">Over committed</span>
-                ) : snap.remainingAfterCommitted < client.retainerHoursPerMonth * 0.2 ? (
+                ) : snap.hasHourLimit && snap.remainingAfterCommitted < client.retainerHoursPerMonth * 0.2 ? (
                   <span className="badge badge-warn">Tight</span>
                 ) : (
                   <span className="badge badge-ok">OK</span>
                 )}
               </div>
               <p className="muted" style={{ margin: "0.5rem 0 0" }}>
-                Retainer {snap.retainer}h · Used {snap.used.toFixed(1)}h · Committed{" "}
+                {snap.billingType==="hourly"?"Hourly":"Retainer"} · {snap.hasHourLimit?`${snap.retainer}h allowance`:"No hour limit"} · Used {snap.used.toFixed(1)}h · Committed{" "}
                 {snap.committed.toFixed(1)}h
               </p>
               <p style={{ margin: "0.75rem 0 0", fontWeight: 600 }}>
@@ -89,14 +89,14 @@ export function Overview() {
                 <span
                   style={{
                     color:
-                      snap.remainingAfterCommitted < 0
+                      !snap.hasHourLimit ? "var(--muted)" : snap.remainingAfterCommitted < 0
                         ? "var(--danger)"
                         : snap.remainingAfterCommitted < snap.retainer * 0.15
                           ? "var(--warn)"
                           : "var(--ok)",
                   }}
                 >
-                  {snap.remainingAfterCommitted.toFixed(1)}h
+                  {snap.hasHourLimit?`${snap.remainingAfterCommitted.toFixed(1)}h`:"No hour limit"}
                 </span>
               </p>
             </div>

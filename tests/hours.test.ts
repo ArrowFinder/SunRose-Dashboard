@@ -116,3 +116,10 @@ test('cross-month children keep their parent discoverable and progress uses all 
 test('client projection retains total progress even when child details are private',()=>{
   assert.equal(taskSummary({...task,totalSubtasks:4,completedSubtasks:3,status:'in_progress'},[],[]).total,4);
 });
+
+test('optional hour budgets distinguish unbounded retainers and hourly budgets',()=>{
+ const unlimited=monthSnapshot({...client,hourLimitEnabled:false,retainerHoursPerMonth:0},[{...task,actualHours:12}],'2026-09',[]);
+ assert.equal(unlimited.hasHourLimit,false);assert.equal(unlimited.overCommitted,false);assert.equal(unlimited.used,12);
+ const hourly=monthSnapshot({...client,billingType:'hourly',hourLimitEnabled:true,retainerHoursPerMonth:8},[{...task,actualHours:12}],'2026-09',[]);
+ assert.equal(hourly.billingType,'hourly');assert.equal(hourly.overCommitted,true);
+});

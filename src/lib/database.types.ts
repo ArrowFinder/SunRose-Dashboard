@@ -19,6 +19,11 @@ export type ClientRow = {
   id: string;
   name: string;
   retainer_hours_per_month: number;
+  billing_type: "hourly" | "retainer";
+  hour_limit_enabled: boolean;
+  hourly_rate: number | null;
+  monthly_fee: number | null;
+  overage_rate: number | null;
   share_token: string;
   color: string | null;
   created_at: string;
@@ -96,7 +101,7 @@ export interface Database {
       time_entries: Table<TimeRow>;
       task_templates: Table<TemplateRow>;
       active_timers: Table<TimerRow>;
-      sot_client_profiles: Table<{client_id:string;aliases:string[];domains:string[];location:string|null;business_type:string|null;website_url:string|null;website_sources:{url:string;title:string}[]}>;
+      sot_client_profiles: Table<{client_id:string;description:string;services:string;context_notes:string;aliases:string[];domains:string[];location:string|null;business_type:string|null;website_url:string|null;website_sources:{url:string;title:string}[]}>;
       sot_client_contacts: Table<{email:string;client_id:string}>;
       sot_connections: Table<SotConnection>;
       sot_suggestions: Table<SotSuggestion>;
@@ -104,6 +109,7 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      save_client_context: { Args: { cid:string; description_value:string;services_value:string;notes_value:string;aliases_value:string[];domains_value:string[];contacts_value:string[] }; Returns: undefined };
       sot_confirm_identity: { Args: { suggestion_id:string;selected_client:string|null;separate_business:boolean;confirm_relationship:boolean }; Returns: undefined };
       sot_confirm_website: { Args: { suggestion_id:string;use_website:boolean }; Returns: undefined };
       sot_accept: { Args: { suggestion_id: string }; Returns: string };

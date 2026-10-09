@@ -10,6 +10,8 @@ export const clientFromRow = (r: ClientRow): Client => ({
   id: r.id,
   name: r.name,
   retainerHoursPerMonth: Number(r.retainer_hours_per_month),
+  billingType:r.billing_type, hourLimitEnabled:r.hour_limit_enabled,
+  hourlyRate:r.hourly_rate==null?null:Number(r.hourly_rate), monthlyFee:r.monthly_fee==null?null:Number(r.monthly_fee), overageRate:r.overage_rate==null?null:Number(r.overage_rate),
   shareToken: r.share_token,
   color: r.color ?? undefined,
   createdAt: r.created_at,

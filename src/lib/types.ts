@@ -14,6 +14,11 @@ export interface Client {
   id: string;
   name: string;
   retainerHoursPerMonth: number;
+  billingType?: "hourly" | "retainer";
+  hourLimitEnabled?: boolean;
+  hourlyRate?: number | null;
+  monthlyFee?: number | null;
+  overageRate?: number | null;
   shareToken: string;
   createdAt: string;
   /** Calendar / UI color (hex) */

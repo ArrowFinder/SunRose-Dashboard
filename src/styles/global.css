@@ -612,3 +612,14 @@ table.data tr:hover td {
 .sot-client-checklist ul { list-style: none; padding: 0; margin: .6rem 0; }
 .sot-client-checklist li { padding: .2rem 0; }
 .sot-client-checklist button { margin-top: .6rem; }
+
+.client-directory { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:1rem; }
+.client-directory-card { display:block; text-decoration:none; color:inherit; transition:box-shadow .15s,transform .15s; }
+.client-directory-card:hover { box-shadow:0 6px 22px #00000014; transform:translateY(-2px); }
+.client-directory-card:focus-visible { outline:3px solid var(--accent,#b73d58); outline-offset:3px; }
+.client-details-fields { border:0; padding:0; display:grid; gap:1rem; min-width:0; }
+.client-details-fields label { display:grid; gap:.4rem; }
+.client-details-fields textarea { width:100%; resize:vertical; box-sizing:border-box; }
+.calendar-scroll { overflow-x:auto; }
+.calendar-scroll .calendar-grid { min-width:650px; }
+.task-selected { background:#fff1f3; }

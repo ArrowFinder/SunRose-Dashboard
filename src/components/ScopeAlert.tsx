@@ -8,10 +8,10 @@ export function ScopeAlert({ snap }: Props) {
   const lines: string[] = [];
   if (snap.overCommitted) {
     lines.push(
-      `Committed work exceeds what’s left on the retainer by about ${Math.abs(snap.remainingAfterCommitted).toFixed(1)} hours. Reprioritize or approve overage.`
+      `Committed work exceeds the monthly hour allowance by about ${Math.abs(snap.remainingAfterCommitted).toFixed(1)} hours. Reprioritize or approve overage.`
     );
   }
-  if (snap.pendingApprovalHours > 0 && snap.remainingAfterCommitted - snap.pendingApprovalHours < 0) {
+  if (snap.hasHourLimit && snap.pendingApprovalHours > 0 && snap.remainingAfterCommitted - snap.pendingApprovalHours < 0) {
     lines.push(
       `New requests waiting for approval need ~${snap.pendingApprovalHours.toFixed(1)}h; there isn’t enough room without dropping or adding hours.`
     );
