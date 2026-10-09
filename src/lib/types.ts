@@ -11,6 +11,7 @@ export type WorkSource = "internal" | "client";
 export type UserRole = "owner" | "admin" | "supervisor" | "employee" | "client";
 
 export interface Client {
+  archivedAt?: string | null;
   id: string;
   name: string;
   retainerHoursPerMonth: number;
@@ -26,6 +27,7 @@ export interface Client {
 }
 
 export interface WorkItem {
+  archivedAt?: string | null;
   parentId?: string | null;
   completedSubtasks?: number;
   totalSubtasks?: number;

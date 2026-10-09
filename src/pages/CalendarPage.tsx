@@ -95,6 +95,7 @@ export function CalendarPage({clientId}:{clientId?:string}={}) {
     const map = new Map<number, typeof data.workItems>();
     const ymPrefix = `${y}-${String(m + 1).padStart(2, "0")}`;
     for (const w of data.workItems) {
+      if (w.archivedAt || data.clients.find(c=>c.id===w.clientId)?.archivedAt) continue;
       if (clientId && w.clientId!==clientId) continue;
       if (w.parentId && !showSubtasks) continue;
       if (!w.dueDate || !w.dueDate.startsWith(ymPrefix)) continue;
@@ -108,7 +109,7 @@ export function CalendarPage({clientId}:{clientId?:string}={}) {
       list.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
     }
     return map;
-  }, [data.workItems, y, m, showSubtasks,clientId]);
+  }, [data.workItems,data.clients, y, m, showSubtasks,clientId]);
 
   if (currentUser?.role === "client") {
     return currentUser.clientId ? (
@@ -196,7 +197,7 @@ export function CalendarPage({clientId}:{clientId?:string}={}) {
           </div></div>
         </div>
       </div>
-      <section className="card"><h2>Unscheduled</h2><p className="muted">Tasks without a due date, across all months.</p>{data.workItems.filter(w=>(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks)).map(w=><p key={w.id}><Link to={`/client/${w.clientId}/task/${w.id}`}>{w.parentId?"↳ ":""}{w.title}</Link> · {data.users.find(u=>u.id===w.assignedUserId)?.name??"Unassigned"}</p>)}{!data.workItems.some(w=>(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks))&&<p>No unscheduled tasks.</p>}</section>
+      <section className="card"><h2>Unscheduled</h2><p className="muted">Tasks without a due date, across all months.</p>{data.workItems.filter(w=>!w.archivedAt&&!data.clients.find(c=>c.id===w.clientId)?.archivedAt&&(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks)).map(w=><p key={w.id}><Link to={`/client/${w.clientId}/task/${w.id}`}>{w.parentId?"↳ ":""}{w.title}</Link> · {data.users.find(u=>u.id===w.assignedUserId)?.name??"Unassigned"}</p>)}{!data.workItems.some(w=>!w.archivedAt&&!data.clients.find(c=>c.id===w.clientId)?.archivedAt&&(!clientId||w.clientId===clientId)&&!w.dueDate&&(!w.parentId||showSubtasks))&&<p>No unscheduled tasks.</p>}</section>
     </div>
   );
 }

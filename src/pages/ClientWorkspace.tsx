@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
+import { getSupabase } from "../lib/supabaseClient";
 import { MonthSnapshot } from "../components/MonthSnapshot";
 import { ScopeAlert } from "../components/ScopeAlert";
 import { WorkItemModal } from "../components/WorkItemModal";
@@ -16,10 +17,15 @@ import { hoursLoggedForWorkItem } from "../lib/hours";
 import { subtasksFor, taskSummary, taskRootsForMonth } from "../lib/taskTree";
 
 export function ClientWorkspace() {
+  const navigate=useNavigate();
+  const [showArchived,setShowArchived]=useState(false);
+  const [removing,setRemoving]=useState<string|null>(null);
+  const [pendingRemoval,setPendingRemoval]=useState<{id:string;mode:"delete"|"archive"|"restore"}|null>(null);
   const [searchParams] = useSearchParams();
   const { clientId,taskId } = useParams<{ clientId: string;taskId:string }>();
   const {
     data,
+    refresh,
     cloud,
     currentUser,
     sessionUserId,
@@ -73,7 +79,7 @@ export function ClientWorkspace() {
       .forEach((w) => set.add(w.yearMonth));
     set.add(yearMonth);
     return Array.from(set).sort().reverse();
-  }, [data.workItems, clientId, yearMonth,taskId,taskRoot]);
+  }, [data.workItems, clientId, yearMonth,taskId,taskRoot,showArchived]);
 
   const snap = useMemo(() => {
     if (!client) return null;
@@ -83,13 +89,13 @@ export function ClientWorkspace() {
   const items = useMemo(() => {
     if (!clientId) return [];
     if(taskId)return taskRoot?[taskRoot]:[];
-    return taskRootsForMonth(data.workItems, clientId, yearMonth);
+    return taskRootsForMonth(data.workItems.filter(w=>showArchived||!w.archivedAt), clientId, yearMonth);
   }, [data.workItems, clientId, yearMonth]);
 
   const entriesThisMonth = useMemo(() => {
     const ids = new Set(data.workItems.filter(w => w.clientId === clientId&&(!taskId||w.id===taskRoot?.id||w.parentId===taskRoot?.id)).map(w => w.id));
     return data.timeEntries.filter((e) => ids.has(e.workItemId) && entryHoursInMonth(e, yearMonth) > 0 && !e.voidedAt);
-  }, [data.timeEntries, data.workItems, clientId, yearMonth,taskId,taskRoot]);
+  }, [data.timeEntries, data.workItems, clientId, yearMonth,taskId,taskRoot,showArchived]);
 
   const clientTemplates = useMemo(
     () => data.taskTemplates.filter((t) => t.clientId === client?.id),
@@ -157,7 +163,7 @@ export function ClientWorkspace() {
             ))}
           </datalist>
         </div>
-        {canEdit && (
+        {canEdit && !client.archivedAt && !taskRoot?.archivedAt && (
           <>
             <button
               type="button"
@@ -192,6 +198,7 @@ export function ClientWorkspace() {
       )}
 
       <div className="card">
+        {staff&&!taskId&&<label><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Show archived tasks</label>}
         <h2 style={{ marginBottom: "0.75rem" }}>{taskId?"Main task & subtasks":"Work this month"}</h2>
         {actionError && <p role="alert">{actionError}</p>}
         {items.length === 0 ? (
@@ -210,11 +217,13 @@ export function ClientWorkspace() {
                 </tr>
               </thead>
               <tbody>
-                {items.flatMap(root => [root, ...(taskId || expanded.has(root.id) ? subtasksFor(root,data.workItems) : [])]).map((w) => {
+                {items.flatMap(root => [root, ...(taskId || expanded.has(root.id) ? subtasksFor(root,data.workItems).filter(w=>showArchived||!w.archivedAt||root.archivedAt) : [])]).map((w) => {
                   const logged = hoursLoggedForWorkItem(w.id, data.timeEntries);
                   const summary = taskSummary(w, data.workItems, data.timeEntries);
                   const display = summary.actual;
-                  const hasChildren = summary.total > 0;
+                  const hasChildren = subtasksFor(w,data.workItems).length > 0;
+                  const hasHistory=w.actualHours>0||data.timeEntries.some(e=>e.workItemId===w.id);
+                  const inactive=!!w.archivedAt||!!client.archivedAt;
                   const running =
                     activeTimer?.workItemId === w.id && activeTimer.userId === sessionUserId;
                   return (
@@ -222,7 +231,7 @@ export function ClientWorkspace() {
                       <td style={{minWidth:"220px",paddingLeft:w.parentId ? "1.5rem" : undefined}}>
                         {hasChildren && <button type="button" className="btn btn-ghost" aria-label={`${expanded.has(w.id) ? "Collapse" : "Expand"} ${w.title}`} aria-expanded={expanded.has(w.id)} onClick={() => setExpanded(old => { const next = new Set(old); next.has(w.id) ? next.delete(w.id) : next.add(w.id); return next; })}>{expanded.has(w.id) ? "▾" : "▸"}</button>}
                         <strong><Link to={`/client/${client.id}/task/${w.id}`}>{w.parentId ? "↳ " : ""}{w.title}</Link></strong>
-                        {hasChildren && <div className="muted">{summary.done} of {summary.total} complete</div>}
+                        {hasChildren && <div className="muted">{summary.total?`${summary.done} of ${summary.total} complete`:"No active subtasks"}</div>}
                         {w.parentId && w.yearMonth !== yearMonth && <div className="muted">Scheduled {labelYearMonth(w.yearMonth)}</div>}
                         {w.description ? (
                           <div className="muted" style={{ fontSize: "0.8rem" }}>
@@ -243,8 +252,9 @@ export function ClientWorkspace() {
                         )}
                       </td></>}
                       <td style={{ whiteSpace: "normal", width:"250px", minWidth:"200px" }}>
-                        {canEdit && staff && (
-                          <>
+                        {canEdit && staff && !inactive && (
+                          <div className="task-actions">
+                            <div className="task-action-group" role="group" aria-label="Time tracking"><span className="task-action-label">Time tracking</span>
                             {!hasChildren && (running ? (
                               <span className="badge badge-warn">Running</span>
                             ) : (
@@ -265,6 +275,8 @@ export function ClientWorkspace() {
                             >
                               Log time
                             </button>}
+                            {hasChildren&&<span className="muted">Track time on subtasks</span>}</div>
+                            <div className="task-action-group" role="group" aria-label="Task editing"><span className="task-action-label">Task editing</span>
                             <button
                               type="button"
                               className="btn btn-ghost"
@@ -275,27 +287,31 @@ export function ClientWorkspace() {
                                 setModalOpen(true);
                               }}
                             >
-                              Edit
+                              Edit task
                             </button>
                             {!w.parentId && <button type="button" className="btn btn-ghost" onClick={() => { setEditing(null); setParentTask(w); setExpanded(old => new Set([...old,w.id])); setModalOpen(true); }}>Add subtask</button>}
-                            {!hasChildren && <button type="button" className="btn btn-ghost" disabled={changingStatus !== null} onClick={async () => {
+                            </div><div className="task-completion">
+                            {!hasChildren && <button type="button" className="btn btn-complete" disabled={changingStatus !== null} onClick={async () => {
                               setChangingStatus(w.id); setActionError("");
                               try { await updateWorkItem(w.id,{status:w.status === "done" ? "planned" : "done",updatedAt:w.updatedAt}); }
                               catch(e) { setActionError(e instanceof Error ? e.message : "Could not update completion."); }
                               finally { setChangingStatus(null); }
                             }}>{w.status === "done" ? "Reopen" : "Mark complete"}</button>}
-                            {(!cloud || isOwnerOrAdmin(currentUser)) && <button
-                              type="button"
-                              className="btn btn-danger"
-                              style={{ padding: "0.25rem 0.4rem" }}
-                              onClick={() => {
-                                if (confirm(`Delete “${w.title}”?`)) void Promise.resolve(deleteWorkItem(w.id)).catch(e => setActionError(e instanceof Error ? e.message : "Could not delete task."));
-                              }}
-                            >
-                              Delete
-                            </button>}
-                          </>
+                            </div>
+                          </div>
                         )}
+                        {w.archivedAt&&<span className="badge">Archived · history retained</span>}
+                        {isOwnerOrAdmin(currentUser)&&<div className="task-removal">
+                         <button className="btn btn-ghost" disabled={!!removing} onClick={()=>{setActionError('');setPendingRemoval({id:w.id,mode:w.archivedAt?'restore':'archive'});}}>{w.archivedAt?'Restore task':'Archive task'}</button>
+                         <button className="btn btn-danger" disabled={!!removing||hasHistory||hasChildren||running} onClick={()=>{setActionError('');setPendingRemoval({id:w.id,mode:'delete'});}}>Delete permanently</button>
+                         {(hasHistory||hasChildren||running)&&<p className="muted">{running?'Stop the timer before archiving.':hasHistory?'Time history is protected. Archive this task to remove it from active work.':'This task has subtasks. Archive the group, or remove its subtasks before deleting.'}</p>}
+                         {pendingRemoval?.id===w.id&&<div className="action-confirm" role="group" aria-label="Confirm task action"><p>{pendingRemoval.mode==='delete'?`Permanently delete “${w.title}”? This cannot be undone.`:pendingRemoval.mode==='archive'?`Archive “${w.title}”${hasChildren?' and its active subtasks':''}? Time history stays available.`:'Restore this task? Restored work stays private until shared again.'}</p><button className="btn btn-primary" disabled={!!removing} onClick={async()=>{
+                          const mode=pendingRemoval.mode;setRemoving(w.id);setActionError('');
+                          try {if(mode==='delete')await deleteWorkItem(w.id);else if(cloud){const r=await getSupabase().rpc('set_task_archived',{task_id:w.id,archived:mode==='archive'});if(r.error)throw r.error;await refresh?.();}else{const stamp=mode==='archive'?new Date().toISOString():null;for(const item of data.workItems.filter(x=>x.id===w.id||x.parentId===w.id))await updateWorkItem(item.id,{archivedAt:stamp,clientVisible:false});}
+                           setPendingRemoval(null);if(mode==='delete'&&taskId)navigate(`/client/${client.id}/tasks`);
+                          }catch(e){setActionError(e instanceof Error?e.message:(e as {message?:string}).message??'Could not update task.');}finally{setRemoving(null);}
+                         }}>{removing===w.id?'Saving…':'Confirm '+pendingRemoval.mode}</button><button className="btn" disabled={!!removing} onClick={()=>{setPendingRemoval(null);setActionError('');}}>Cancel</button>{actionError&&<p role="alert">{actionError}</p>}</div>}
+                        </div>}
                       </td>
                     </tr>
                   );

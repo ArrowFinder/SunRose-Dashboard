@@ -9,6 +9,7 @@ import type {
 export const clientFromRow = (r: ClientRow): Client => ({
   id: r.id,
   name: r.name,
+  archivedAt:r.archived_at,
   retainerHoursPerMonth: Number(r.retainer_hours_per_month),
   billingType:r.billing_type, hourLimitEnabled:r.hour_limit_enabled,
   hourlyRate:r.hourly_rate==null?null:Number(r.hourly_rate), monthlyFee:r.monthly_fee==null?null:Number(r.monthly_fee), overageRate:r.overage_rate==null?null:Number(r.overage_rate),
@@ -18,6 +19,7 @@ export const clientFromRow = (r: ClientRow): Client => ({
 });
 export const workFromRow = (r: WorkRow): WorkItem => ({
   id: r.id,
+  archivedAt:r.archived_at,
   parentId: r.parent_id,
   clientId: r.client_id,
   yearMonth: r.year_month,

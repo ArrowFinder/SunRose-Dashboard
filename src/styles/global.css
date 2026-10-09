@@ -623,3 +623,13 @@ table.data tr:hover td {
 .calendar-scroll { overflow-x:auto; }
 .calendar-scroll .calendar-grid { min-width:650px; }
 .task-selected { background:#fff1f3; }
+
+.task-actions { display:flex; flex-direction:column; gap:.8rem; }
+.task-action-group { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; padding:.65rem; border:1px solid #e6e3df; border-radius:9px; background:#faf9f7; }
+.task-action-label { width:100%; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:#666; }
+.task-completion { padding-top:.25rem; }
+.btn-complete { border:1px solid #4d7660; color:#25583c; background:#edf6ef; }
+.btn-complete:hover { color:#163b27; background:#d9eddf; }
+.task-removal { margin-top:1rem; border-top:1px solid #e6e3df; padding-top:.65rem; }
+.task-removal p { font-size:.8rem; line-height:1.4; }
+.action-confirm { margin-top:.6rem; padding:.8rem; border:1px solid #cda888; border-radius:8px; background:#fff9f3; }

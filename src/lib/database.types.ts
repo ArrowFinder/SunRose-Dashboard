@@ -16,6 +16,7 @@ export type ProfileRow = {
   updated_at: string;
 };
 export type ClientRow = {
+  archived_at: string | null;
   id: string;
   name: string;
   retainer_hours_per_month: number;
@@ -29,6 +30,7 @@ export type ClientRow = {
   created_at: string;
 };
 export type WorkRow = {
+  archived_at: string | null;
   parent_id: string | null;
   id: string;
   client_id: string;
@@ -109,6 +111,8 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      set_task_archived: { Args:{task_id:string;archived:boolean};Returns:undefined };
+      set_client_archived: { Args:{client_id:string;archived:boolean};Returns:undefined };
       save_client_context: { Args: { cid:string; description_value:string;services_value:string;notes_value:string;aliases_value:string[];domains_value:string[];contacts_value:string[] }; Returns: undefined };
       sot_confirm_identity: { Args: { suggestion_id:string;selected_client:string|null;separate_business:boolean;confirm_relationship:boolean }; Returns: undefined };
       sot_confirm_website: { Args: { suggestion_id:string;use_website:boolean }; Returns: undefined };

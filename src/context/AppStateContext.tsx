@@ -64,7 +64,7 @@ export type Ctx = {
   addClient: (name: string, retainerHoursPerMonth: number) => Result<Client>;
   updateClient: (
     id: string,
-    patch: Partial<Pick<Client, "name" | "retainerHoursPerMonth" | "color" | "billingType" | "hourLimitEnabled" | "hourlyRate" | "monthlyFee" | "overageRate">>
+    patch: Partial<Pick<Client, "name" | "archivedAt" | "retainerHoursPerMonth" | "color" | "billingType" | "hourLimitEnabled" | "hourlyRate" | "monthlyFee" | "overageRate">>
   ) => Result<void>;
   deleteClient: (id: string) => Result<void>;
   regenerateShareToken: (clientId: string) => Result<string>;
@@ -272,7 +272,7 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
   const updateClient = useCallback(
     (
       id: string,
-      patch: Partial<Pick<Client, "name" | "retainerHoursPerMonth" | "color" | "billingType" | "hourLimitEnabled" | "hourlyRate" | "monthlyFee" | "overageRate">>
+      patch: Partial<Pick<Client, "name" | "archivedAt" | "retainerHoursPerMonth" | "color" | "billingType" | "hourLimitEnabled" | "hourlyRate" | "monthlyFee" | "overageRate">>
     ) => {
       setData((d) => ({
         ...d,

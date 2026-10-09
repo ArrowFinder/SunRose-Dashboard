@@ -123,3 +123,8 @@ test('optional hour budgets distinguish unbounded retainers and hourly budgets',
  const hourly=monthSnapshot({...client,billingType:'hourly',hourLimitEnabled:true,retainerHoursPerMonth:8},[{...task,actualHours:12}],'2026-09',[]);
  assert.equal(hourly.billingType,'hourly');assert.equal(hourly.overCommitted,true);
 });
+
+test('archived work keeps billable history but does not consume planned capacity',()=>{
+ const snap=monthSnapshot(client,[{...task,archivedAt:'2026-10-09T00:00:00Z',actualHours:2}],'2026-09',[]);
+ assert.equal(snap.used,2);assert.equal(snap.committed,0);
+});

@@ -6,7 +6,7 @@ export function clientsVisibleToUser(user: User | null, clients: Client[]): Clie
     if (!user.clientId) return [];
     return clients.filter((c) => c.id === user.clientId);
   }
-  return clients;
+  return clients.filter(c=>!c.archivedAt);
 }
 
 export function userCanAccessClient(user: User | null, clientId: string): boolean {
