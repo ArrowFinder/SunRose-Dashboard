@@ -115,7 +115,7 @@ async function scan(uid:string) {
     const checklist=clientChecklist(p,clients,source.body);
     if(p.kind==='client'&&!checklist.ready) continue;
     if(p.kind!=='client'&&matched) {checklist.identity_resolved=true;checklist.matched_client_id=matched.id;}
-    if(p.kind!=='client'&&relationship.candidates.length>1) {checklist.identity_resolved=false;checklist.possible_matches=relationship.candidates.map(c=>c.id);checklist.explanation='Multiple existing clients appear in this conversation. Confirm which client owns this work.';}
+    if(p.kind!=='client'&&relationship.candidates.length>1) {checklist.ready=false;checklist.identity_resolved=false;checklist.possible_matches=relationship.candidates.map(c=>c.id);checklist.explanation='Multiple existing clients appear in this conversation. Confirm which client owns this work.';}
     if(!p.client_id && checklist.matched_client_id && checklist.identity_resolved) p.client_id=checklist.matched_client_id;
     if(p.kind==='client'&&checklist.matched_client_id&&checklist.identity_resolved) continue;
     rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,analysis_version:3,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});

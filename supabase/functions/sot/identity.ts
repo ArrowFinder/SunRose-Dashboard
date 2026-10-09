@@ -8,13 +8,14 @@ export function clientChecklist(p:Proposal, clients:KnownClient[], sourceText:st
  const contacts=clients.filter(c=>c.emails?.includes(p.contact_email.toLowerCase())||c.id===association?.id);
  const selected=p.client_id?clients.find(c=>c.id===p.client_id):null;
  // A shared contact is a clue, never sufficient evidence to merge two businesses.
- const conflict=matches.length>1 || (contacts.length>0 && (matches.length!==1 || !contacts.some(c=>c.id===matches[0].id))) || !!selected&&!matches.some(m=>m.id===selected.id);
+ const missingTaskClient=p.kind!=='client'&&!selected&&matches.length===0;
+ const conflict=missingTaskClient||matches.length>1 || (contacts.length>0 && (matches.length!==1 || !contacts.some(c=>c.id===matches[0].id))) || !!selected&&!matches.some(m=>m.id===selected.id);
  const evidence=p.relationship_evidence?.trim()||'';
  const relationship=(p.relationship_type===undefined||p.relationship_type==='client')&&!!evidence&&normalizedName(sourceText).includes(normalizedName(evidence));
  return {business_name:!!name,contact_email:!!p.contact_email,relationship_evidence:relationship,
   existing_clients_checked:true,identity_resolved:!conflict,matched_client_id:matches.length===1?matches[0].id:null,
   possible_matches:[...new Set([...matches,...contacts,...(selected?[selected]:[])].map(c=>c.id))],
-  explanation:conflict?'This contact or business name matches an existing client. Confirm which business this conversation concerns.':relationship?'Business name, email contact and source evidence are present.':'SOT needs a source quotation establishing the client relationship.',
+  explanation:missingTaskClient?'The client for this task is not confirmed. Select the existing client that owns this work.':conflict?'This contact or business name matches an existing client. Confirm which business this conversation concerns.':relationship?'Business name, email contact and source evidence are present.':'SOT needs a source quotation establishing the client relationship.',
   ready:!!name&&!!p.contact_email&&relationship&&!conflict};
 }
 export function publicWebsite(value:unknown):string|null {
