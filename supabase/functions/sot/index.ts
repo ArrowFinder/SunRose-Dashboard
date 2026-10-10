@@ -1,3 +1,4 @@
+import { supportedProposal, quoted, duplicateWork, proposalIdentity, canonical } from './truth.ts';
 import { resolveProject } from './projects.ts';
 import { clientChecklist, clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
@@ -64,6 +65,7 @@ async function scan(uid:string) {
   const tasks=checked(await db.from('work_items').select('id,client_id,project_id,parent_id,title,status,due_date,updated_at,archived_at').order('updated_at',{ascending:false}).limit(300))||[];
   const projects=checked(await db.from('projects').select('id,client_id,name,description,stage').order('updated_at',{ascending:false}).limit(1000))||[];
   const reviews=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
+  const pending=checked(await db.from('sot_suggestions').select('id,kind,title,description,payload,status,archived_at,source_subject,evidence').eq('user_id',uid).order('updated_at',{ascending:false}).limit(300))||[];
   let made=0;
   for(const ref of list.threads||[]) {
    const thread=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+encodeURIComponent(ref.id)+'?format=full',{headers});
@@ -73,7 +75,7 @@ async function scan(uid:string) {
     return {id:m.id,messageId:h('message-id')||m.id,date:new Date(Number(m.internalDate)).toISOString(),from:h('from'),to:h('to'),cc:h('cc'),subject:h('subject'),body:bounded(body(m.payload||{}),9000)};
    }).filter((m:any)=>agencyRelated(m,c.email)).slice(-12);
    if(!messages.length) continue;
-   const fingerprint=await hash(JSON.stringify({messages,engine:'current-work-v3'}));
+   const fingerprint=await hash(JSON.stringify({messages,engine:'truth-v4'}));
    const cached=checked(await db.from('sot_scan_cache').select('fingerprint').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
    if(cached?.fingerprint===fingerprint) continue;
    const contacts=addresses(messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' '));
@@ -83,12 +85,12 @@ async function scan(uid:string) {
    const matched=relationship.matched;
    if(matched && clients.find((c:any)=>c.id===matched.id)?.archived_at) continue;
    const relevantReviews=reviews.filter((r:any)=>contacts.includes(r.contact_email)||r.client_name===matched?.name).slice(0,12);
-   const context={clients:relevantClients.slice(0,80),projects:projects.filter((p:any)=>matched?p.client_id===matched.id:relationship.candidates.some(c=>c.id===p.client_id)).slice(0,30).map((p:any)=>({...p,description:bounded(p.description||'',500)})),tasks:tasks.filter((t:any)=>!matched||t.client_id===matched.id).slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
+   const context={unconfirmed_suggestions:pending.filter((s:any)=>!s.archived_at&&s.status==='pending'&&(!matched||s.payload.client_id===matched.id)).slice(0,20).map((s:any)=>({id:s.id,kind:s.kind,title:s.title,scope:bounded(s.description,400),client_id:s.payload.client_id,project_id:s.payload.project_id,new_project_name:s.payload.new_project_name,evidence:bounded(s.evidence,300),source_subject:s.source_subject})),clients:relevantClients.slice(0,80),projects:projects.filter((p:any)=>matched?p.client_id===matched.id:relationship.candidates.some(c=>c.id===p.client_id)).slice(0,30).map((p:any)=>({...p,description:bounded(p.description||'',500)})),tasks:tasks.filter((t:any)=>!matched||t.client_id===matched.id).slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
    let selected=messages;
    const inputMessages=(items:any[])=>items.map(({id,messageId,...rest})=>({...rest,source_message_id:id}));
    let input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});
    while(new TextEncoder().encode(input).length>16000 && selected.length>1) {selected=selected.slice(1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
-   if(new TextEncoder().encode(input).length>16000) {context.tasks=[];context.projects=context.projects.map((p:any)=>({...p,description:''}));context.clients=relevantClients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
+   if(new TextEncoder().encode(input).length>16000) {context.unconfirmed_suggestions=context.unconfirmed_suggestions.slice(0,8);context.projects=context.projects.map((p:any)=>({...p,description:''}));context.clients=relevantClients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
    while(new TextEncoder().encode(input).length>16000 && context.clients.length>1) {context.clients=context.clients.slice(0,-1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
    if(new TextEncoder().encode(input).length>16000) throw new Error('A conversation is too large to process safely. Contact the owner.');
    const passes:('clients'|'tasks')[]=relationship.allowNewClient?['clients','tasks']:['tasks'];
@@ -102,27 +104,38 @@ async function scan(uid:string) {
     if(!Array.isArray(found)||found.length>8) throw new Error('SOT returned an incomplete suggestion. Retry the scan.');
     proposals.push(...found.filter(p=>pass==='clients'?p.kind==='client':p.kind!=='client'));
    }
-   const rows=[];
+   const rows:any[]=[];
    for(const p of proposals) {
     if(!validProposal(p,selected.map((m:any)=>m.id),contacts)) continue;
     if(p.kind==='client' && (p.relationship_type!=='client'||!relationship.allowNewClient)) continue;
     if(p.kind!=='client'&&matched) {p.client_id=matched.id;p.client_name=matched.name;}
-    if(p.kind!=='client' && p.responsibility!=='sunrose') continue;
+    if(!['client','project'].includes(p.kind) && p.responsibility!=='sunrose') continue;
     if(p.kind==='client') {p.parent_id=null;p.task_id=null;p.due_date=null;p.estimated_hours=null;}
     if(p.client_id && !clients.some((x:any)=>x.id===p.client_id&&!x.archived_at)) continue;
     const target=p.task_id?tasks.find((t:any)=>t.id===p.task_id):null;
     if(['update','complete'].includes(p.kind) && (!target || target.archived_at || target.client_id!==p.client_id || tasks.some((t:any)=>t.parent_id===target.id))) continue;
     if(p.parent_id && !tasks.some((t:any)=>t.id===p.parent_id&&!t.parent_id&&t.client_id===p.client_id)) continue;
     const source=selected.find((m:any)=>m.id===p.source_message_id);
+    if(!source||!supportedProposal(p,source))continue;
+    if(p.due_date&&!quoted(p.due_evidence,source.body))p.due_date=null;
+    if(p.estimated_hours!==null&&!quoted(p.estimate_evidence,source.body))p.estimated_hours=null;
+    if(p.kind==='project'){p.parent_id=null;p.task_id=null;p.due_date=null;p.estimated_hours=null;p.new_project_name=p.title;p.project_id=null;if(p.title.length>160)continue;}
     if(Date.parse(source.date)<Date.parse(context.current_window.after)||Date.parse(source.date)>=Date.parse(started)) continue;
-    const key=await hash(p.kind==='client'?'client:'+p.client_name.trim().toLowerCase():[p.kind,source.messageId,p.title.trim().toLowerCase(),p.task_id||''].join(':'));
+
     const checklist=clientChecklist(p,clients,source.body);
     if(p.kind==='client'&&!checklist.ready) continue;
     if(p.kind!=='client'&&matched) {checklist.identity_resolved=true;checklist.matched_client_id=matched.id;}
     if(p.kind!=='client'&&relationship.candidates.length>1) {checklist.ready=false;checklist.identity_resolved=false;checklist.possible_matches=relationship.candidates.map(c=>c.id);checklist.explanation='Multiple existing clients appear in this conversation. Confirm which client owns this work.';}
     if(!p.client_id && checklist.matched_client_id && checklist.identity_resolved) p.client_id=checklist.matched_client_id;
     if(p.kind==='client'&&checklist.matched_client_id&&checklist.identity_resolved) continue;
-    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,...resolveProject(p,context.projects,tasks,source.subject+' '+source.body),analysis_version:3,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
+    const project=resolveProject(p,context.projects,tasks,source.body);
+    if(p.kind==='project'&&(!p.client_id||!checklist.identity_resolved||project.project_match!=='new'))continue;
+    Object.assign(p,project);
+    const duplicate=duplicateWork(p,[...tasks,...pending,...rows]);
+    if(duplicate?.exact)continue;
+    const key=p.kind==='project'?proposalIdentity(p):await hash(proposalIdentity(p));
+    const projectKey=p.new_project_name&&p.client_id?'project:'+p.client_id+':'+canonical(p.new_project_name):null;
+    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,project_proposal_key:projectKey,possible_duplicate_id:duplicate?.id||null,uncertainty:[p.uncertainty,duplicate?'Possible duplicate: compare the existing work before adding.':''].filter(Boolean).join(' '),analysis_version:4,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
    }
    checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:rows}));
    made+=rows.length;

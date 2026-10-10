@@ -101,3 +101,7 @@ Step-by-step checklist (create repo, deploy, Supabase URLs, secrets): see **[DEP
 ## License
 
 Private / your use.
+
+## Source of Truth (SOT)
+
+See [the SOT behavior contract](docs/SOT_TRUTH_MODEL.md) for evidence-based client/project/task suggestions, separate approvals, scan limits and known limitations.

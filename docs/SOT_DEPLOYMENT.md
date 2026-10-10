@@ -1,4 +1,6 @@
-# SOT deployment — 2026-10-01
+# Historical SOT deployment — 2026-10-01
+
+This is an historical receipt, not current setup instructions. See [SOT_TRUTH_MODEL.md](SOT_TRUTH_MODEL.md) for the current contract.
 
 Applied production migrations in order to project vpyddcdncjmkjlidbsdi:
 - 20261002000000_supervisor_role.sql
