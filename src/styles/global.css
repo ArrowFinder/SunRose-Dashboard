@@ -667,3 +667,16 @@ table.data tr:hover td {
 
 .time-controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; }
 .time-controls label { display:flex; flex-direction:column; gap:.35rem; }
+
+/* Suggestion type uses its own icon and label; the card border identifies the client. */
+.sot-type-badge { display:inline-flex; align-items:center; flex-wrap:wrap; gap:.65rem; padding:.65rem .9rem; border:1px solid currentColor; border-radius:10px; margin-bottom:.75rem; max-width:100%; }
+.sot-type-badge > span { font-size:1.05rem; font-weight:800; letter-spacing:.045em; text-transform:uppercase; }
+.sot-type-badge > svg { flex-shrink:0; }
+.sot-type-badge > small { font-size:.8rem; font-weight:500; }
+.sot-type-client { color:#613199; background:#f3eaff; }
+.sot-type-project { color:#164e9b; background:#eaf2ff; }
+.sot-type-task { color:#0b625a; background:#e5f6f2; }
+.sot-type-subtask { color:#854b08; background:#fff3d9; }
+.sot-type-update { color:#54419b; background:#f0edff; }
+.sot-type-complete { color:#266329; background:#edf7e9; }
+@media(max-width:480px) { .sot-type-badge > small { flex-basis:100%; } }
