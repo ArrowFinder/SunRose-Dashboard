@@ -74,9 +74,12 @@ export interface User {
 }
 
 export interface TimeEntry {
+  clientId?: string;
+  projectId?: string;
+  updatedAt?: string;
   voidedAt?: string | null;
   id: string;
-  workItemId: string;
+  workItemId: string | null;
   userId: string;
   startedAt: string;
   endedAt: string;
@@ -130,7 +133,8 @@ export interface AppExportFile {
 }
 
 export interface ActiveTimer {
+  projectId?: string;
   userId: string;
-  workItemId: string;
+  workItemId: string | null;
   startedAt: string;
 }

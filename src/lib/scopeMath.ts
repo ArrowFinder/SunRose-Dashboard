@@ -25,7 +25,7 @@ export function usedHoursForMonth(
 ): number {
   const clientItems = items.filter(w => w.clientId === clientId);
   const ids = new Set(clientItems.map(w => w.id));
-  const logged = entries.filter(e => ids.has(e.workItemId) && e.billable && !e.voidedAt)
+  const logged = entries.filter(e => (e.clientId===clientId || !!e.workItemId && ids.has(e.workItemId)) && e.billable && !e.voidedAt)
     .reduce((sum,e) => sum + entryHoursInMonth(e, yearMonth), 0);
   // Legacy manual totals remain only for tasks without any recorded entries.
   const fallback = clientItems.filter(w => w.yearMonth === yearMonth && !entries.some(e => e.workItemId === w.id))

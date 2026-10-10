@@ -40,6 +40,7 @@ export const workFromRow = (r: WorkRow): WorkItem => ({
   updatedAt: r.updated_at,
 });
 export const timeFromRow = (r: TimeRow): TimeEntry => ({
+  projectId:r.project_id, updatedAt:r.updated_at,
   voidedAt: r.voided_at,
   id: r.id,
   workItemId: r.work_item_id,

@@ -57,8 +57,9 @@ export type WorkRow = {
   updated_at: string;
 };
 export type TimeRow = {
+  project_id:string; updated_at:string;
   id: string;
-  work_item_id: string;
+  work_item_id: string|null;
   user_id: string;
   started_at: string;
   ended_at: string;
@@ -79,8 +80,9 @@ export type TemplateRow = {
   created_at: string;
 };
 export type TimerRow = {
+  project_id:string;
   user_id: string;
-  work_item_id: string;
+  work_item_id: string|null;
   started_at: string;
 };
 export type SharedView = {
@@ -119,6 +121,8 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      save_time_log: {Args:{request_id?:string;entry_id:string|null;expected_updated_at:string|null;selected_project:string;selected_task:string|null;entry_start:string;entry_end:string;entry_note:string;entry_billable:boolean};Returns:string};
+      start_project_timer: {Args:{selected_project:string};Returns:TimerRow};
       sot_approve_project_and_task: { Args: {suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string;approved_project_name:string;edited_due:string|null;edited_estimate:number|null}; Returns:string };
       sot_edit_and_accept:{Args:{suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string|null;selected_project:string|null;selected_parent:string|null;edited_due:string|null;edited_estimate:number|null};Returns:string};
       support_user_snapshot: { Args: { target_id:string }; Returns: import('./support').SupportSnapshot };
@@ -142,12 +146,12 @@ export interface Database {
         Returns: TimerRow;
       };
       stop_work_timer: {
-        Args: { expected_task_id: string; expected_started_at: string };
+        Args: { expected_task_id: string|null; expected_started_at: string };
         Returns: undefined;
       };
       correct_work_timer: {
         Args: {
-          expected_task_id: string;
+          expected_task_id: string|null;
           expected_started_at: string;
           corrected_end: string;
           reason: string;

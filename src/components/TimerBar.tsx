@@ -33,6 +33,7 @@ export function TimerBar() {
   }
 
   const item = data.workItems.find((w) => w.id === activeTimer.workItemId);
+  const project = data.projects?.find(p=>p.id===activeTimer.projectId);
   const client = item ? data.clients.find((c) => c.id === item.clientId) : null;
   const ms = elapsedMs(activeTimer.startedAt);
 
@@ -59,6 +60,7 @@ export function TimerBar() {
       <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
         {formatElapsed(ms)}
       </span>
+      {!item&&project&&<span>{project.name} · {data.clients.find(c=>c.id===project.clientId)?.name}</span>}
       {item && (
         <span>
           {item.title}

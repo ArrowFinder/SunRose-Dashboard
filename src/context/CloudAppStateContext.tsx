@@ -157,7 +157,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
           ...userFromRow(r),
           clientId: memberships.find((m) => m.user_id === r.id)?.client_id,
         })),
-        timeEntries: times.map(timeFromRow),
+        timeEntries: times.map(t=>({...timeFromRow(t),clientId:projects.find(p=>p.id===t.project_id)?.client_id})),
         taskTemplates: templates.map(templateFromRow),
       });
       setTimer(
@@ -165,6 +165,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
           ? {
               userId: t.user_id,
               workItemId: t.work_item_id,
+              projectId: t.project_id,
               startedAt: t.started_at,
             }
           : null,
@@ -468,6 +469,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
             ? {
                 userId: t.user_id,
                 workItemId: t.work_item_id,
+              projectId: t.project_id,
                 startedAt: t.started_at,
               }
             : null,

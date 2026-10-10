@@ -1,3 +1,4 @@
+import { TimeTrackingPage } from "./pages/TimeTrackingPage";
 import { TasksPage } from "./pages/TasksPage";
 import { SupportView } from "./pages/SupportView";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -29,6 +30,7 @@ export default function App() {
           <Route element={<RequireAuth />}>
             <Route element={<Layout />}>
               <Route index element={<Overview />} />
+              <Route path="time" element={<TimeTrackingPage />} />
               <Route path="tasks" element={<TasksPage />} />
               <Route path="sot" element={<SotPage />} />
               <Route path="client/:clientId" element={<ClientHome />} />

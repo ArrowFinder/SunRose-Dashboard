@@ -664,3 +664,6 @@ table.data tr:hover td {
 .sot-edit-modal .sot-project-approval { flex-direction:row; align-items:flex-start; text-transform:none; letter-spacing:normal; line-height:1.5; }
 .sot-project-approval input { flex:0 0 auto; width:auto; margin-top:.3rem; }
 .sot-project-context { padding:.75rem; background:var(--bg); border-radius:6px; margin:.75rem 0; }
+
+.time-controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; }
+.time-controls label { display:flex; flex-direction:column; gap:.35rem; }
