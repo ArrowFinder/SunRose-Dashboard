@@ -648,3 +648,22 @@ table.data tr:hover td {
 .support-banner { border:2px solid var(--accent); background:var(--accent-soft); }
 .support-banner h1 { font-size:1.35rem; }
 .support-banner label { display:block; margin-top:1rem; }
+.project-fields { border:0; padding:0; display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+.project-fields label { display:flex; flex-direction:column; gap:.35rem; }
+.task-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; align-items:end; }
+.task-filters label { display:flex; flex-direction:column; gap:.35rem; }
+.task-result { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+.task-result h2 { font-size:1.1rem; margin:0; }
+.due-editor { position:relative; }
+.due-popover { position:absolute; right:0; top:100%; z-index:10; min-width:280px; max-width:90vw; box-shadow:0 8px 24px #0002; }
+.due-popover .row { margin-top:.75rem; flex-wrap:wrap; }
+@media(max-width:640px){ .task-result { align-items:flex-start; flex-direction:column; } .due-popover { left:0;right:auto; } }
+
+.sot-edit-modal { max-height:calc(100dvh - 3rem); overflow-y:auto; justify-content:flex-start; }
+.sot-edit-modal .sot-project-note, .sot-edit-modal .sot-project-approval { grid-column:1 / -1; }
+.sot-edit-modal .sot-project-approval { flex-direction:row; align-items:flex-start; text-transform:none; letter-spacing:normal; line-height:1.5; }
+.sot-project-approval input { flex:0 0 auto; width:auto; margin-top:.3rem; }
+.sot-project-context { padding:.75rem; background:var(--bg); border-radius:6px; margin:.75rem 0; }
+
+.time-controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; }
+.time-controls label { display:flex; flex-direction:column; gap:.35rem; }

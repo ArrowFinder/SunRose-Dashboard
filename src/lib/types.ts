@@ -26,7 +26,16 @@ export interface Client {
   color?: string;
 }
 
+export interface Project {
+ id:string; clientId:string; name:string; description:string;
+ stage:'planned'|'active'|'on_hold'|'completed'; isDefault:boolean;
+ billingType:'inherit'|'hourly'|'retainer'|'fixed_fee'; hourlyRate:number|null; fee:number|null; hourBudget:number|null;
+ startDate:string|null; dueDate:string|null; createdAt:string; updatedAt:string;
+}
+
 export interface WorkItem {
+  projectId?: string | null;
+  projectName?: string | null;
   archivedAt?: string | null;
   parentId?: string | null;
   completedSubtasks?: number;
@@ -65,9 +74,12 @@ export interface User {
 }
 
 export interface TimeEntry {
+  clientId?: string;
+  projectId?: string;
+  updatedAt?: string;
   voidedAt?: string | null;
   id: string;
-  workItemId: string;
+  workItemId: string | null;
   userId: string;
   startedAt: string;
   endedAt: string;
@@ -91,6 +103,7 @@ export interface TaskTemplate {
 
 /** In-memory + export shape */
 export interface AppBundle {
+  projects?: Project[];
   clients: Client[];
   workItems: WorkItem[];
   users: User[];
@@ -109,6 +122,7 @@ export const STORAGE_KEY = "sunrose-dashboard-v1";
 export const EXPORT_VERSION = 2 as const;
 
 export interface AppExportFile {
+  projects?: Project[];
   version: typeof EXPORT_VERSION;
   exportedAt: string;
   clients: Client[];
@@ -119,7 +133,8 @@ export interface AppExportFile {
 }
 
 export interface ActiveTimer {
+  projectId?: string;
   userId: string;
-  workItemId: string;
+  workItemId: string | null;
   startedAt: string;
 }

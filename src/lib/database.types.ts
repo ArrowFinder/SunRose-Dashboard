@@ -29,7 +29,13 @@ export type ClientRow = {
   color: string | null;
   created_at: string;
 };
+export type ProjectRow = {
+ id:string; client_id:string; name:string; description:string; stage:import('./types').Project['stage']; is_default:boolean;
+ billing_type:import('./types').Project['billingType']; hourly_rate:number|null; fee:number|null; hour_budget:number|null;
+ start_date:string|null; due_date:string|null; created_at:string; updated_at:string;
+};
 export type WorkRow = {
+  project_id:string;
   archived_at: string | null;
   parent_id: string | null;
   id: string;
@@ -51,8 +57,9 @@ export type WorkRow = {
   updated_at: string;
 };
 export type TimeRow = {
+  project_id:string; updated_at:string;
   id: string;
-  work_item_id: string;
+  work_item_id: string|null;
   user_id: string;
   started_at: string;
   ended_at: string;
@@ -73,14 +80,16 @@ export type TemplateRow = {
   created_at: string;
 };
 export type TimerRow = {
+  project_id:string;
   user_id: string;
-  work_item_id: string;
+  work_item_id: string|null;
   started_at: string;
 };
 export type SharedView = {
   client: { name: string };
   items: {
     id: string;
+    projectId?:string; projectName?:string;
     title: string;
     status: WorkItem["status"];
     dueDate: string | null;
@@ -92,6 +101,7 @@ export type SharedView = {
 export interface Database {
   public: {
     Tables: {
+      projects: Table<ProjectRow>;
       profiles: Table<ProfileRow>;
       clients: Table<ClientRow>;
       client_members: Table<{
@@ -111,6 +121,14 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      payroll_data: {Args:Record<string,never>;Returns:import('./payroll').PayrollData};
+      set_staff_pay_rate: {Args:{member:string;rate:number;currency_code:string};Returns:undefined};
+      create_pay_period: {Args:{member:string;first_day:string;last_day:string;zone:string;frequency:string};Returns:string};
+      change_pay_period: {Args:{period_id:string;expected_updated_at:string;action:string;reason:string};Returns:undefined};
+      save_time_log: {Args:{request_id?:string;entry_id:string|null;expected_updated_at:string|null;selected_project:string;selected_task:string|null;entry_start:string;entry_end:string;entry_note:string;entry_billable:boolean};Returns:string};
+      start_project_timer: {Args:{selected_project:string};Returns:TimerRow};
+      sot_approve_project_and_task: { Args: {suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string;approved_project_name:string;edited_due:string|null;edited_estimate:number|null}; Returns:string };
+      sot_edit_and_accept:{Args:{suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string|null;selected_project:string|null;selected_parent:string|null;edited_due:string|null;edited_estimate:number|null};Returns:string};
       support_user_snapshot: { Args: { target_id:string }; Returns: import('./support').SupportSnapshot };
       set_task_archived: { Args:{task_id:string;archived:boolean};Returns:undefined };
       set_client_archived: { Args:{client_id:string;archived:boolean};Returns:undefined };
@@ -125,19 +143,19 @@ export interface Database {
       sot_mark_read: { Args: { notification_id: string }; Returns: undefined };
       update_my_name: { Args: { new_name: string }; Returns: undefined };
       correct_time_entry: { Args: { entry_id: string; corrected_minutes: number; expected_minutes: number; expected_task_minutes: number }; Returns: undefined };
-      member_client_view: { Args: Record<string, never>; Returns: { client: { id: string; name: string; color: string | null; createdAt: string }; items: { id: string; clientId: string; title: string; status: WorkItem["status"]; dueDate: string | null; yearMonth: string; parentId: string | null; completedSubtasks: number; totalSubtasks: number }[] } | null };
+      member_client_view: { Args: Record<string, never>; Returns: { client: { id: string; name: string; color: string | null; createdAt: string }; items: { projectId?:string; projectName?:string; id: string; clientId: string; title: string; status: WorkItem["status"]; dueDate: string | null; yearMonth: string; parentId: string | null; completedSubtasks: number; totalSubtasks: number }[] } | null };
       workspace_revision: { Args: Record<string, never>; Returns: number | null };
       start_work_timer: {
         Args: { task_id: string; request_id: string };
         Returns: TimerRow;
       };
       stop_work_timer: {
-        Args: { expected_task_id: string; expected_started_at: string };
+        Args: { expected_task_id: string|null; expected_started_at: string };
         Returns: undefined;
       };
       correct_work_timer: {
         Args: {
-          expected_task_id: string;
+          expected_task_id: string|null;
           expected_started_at: string;
           corrected_end: string;
           reason: string;

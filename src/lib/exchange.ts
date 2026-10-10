@@ -9,6 +9,7 @@ export function bundleToExport(bundle: AppBundle): AppExportFile {
     users: bundle.users,
     timeEntries: bundle.timeEntries,
     taskTemplates: bundle.taskTemplates,
+    projects: bundle.projects,
   };
 }
 
@@ -49,6 +50,7 @@ export function parseImportFile(text: string): AppBundle {
       users: Array.isArray(data.users) ? (data.users as AppBundle["users"]) : [],
       timeEntries: Array.isArray(data.timeEntries) ? (data.timeEntries as AppBundle["timeEntries"]) : [],
       taskTemplates,
+      projects: Array.isArray(data.projects) ? data.projects as AppBundle["projects"] : [],
     };
   }
 

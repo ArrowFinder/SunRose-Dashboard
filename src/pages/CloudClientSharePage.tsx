@@ -72,6 +72,7 @@ export function CloudClientSharePage() {
                 {view.items.filter(w => !w.parentId).map((w) => (
                   <li key={w.id}>
                     <strong>{w.title}</strong> · {STATUS_LABELS[w.status]}
+                    {w.projectName && <span className="muted"> · {w.projectName}</span>}
                     {w.dueDate ? ` · Due ${w.dueDate}` : ""}
                     {w.totalSubtasks > 0 && <p className="muted">{w.completedSubtasks} of {w.totalSubtasks} complete</p>}
                     {view.items.some(child => child.parentId === w.id) && <ul>{view.items.filter(child => child.parentId === w.id).map(child => <li key={child.id}>{child.title} · {STATUS_LABELS[child.status]}{child.dueDate ? ` · Due ${child.dueDate}` : ""}</li>)}</ul>}

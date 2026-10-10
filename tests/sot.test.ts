@@ -16,7 +16,7 @@ for(const [i,role] of ['owner','admin','supervisor','employee','client'].entries
 async function as(uid:string|null,sql:string,args:unknown[]=[]) {await db.exec('begin');try{await db.exec(uid?'set local role authenticated':'set local role anon');await db.query("select set_config('request.jwt.claim.sub',$1,true)",[uid||'']);const r=await db.query(sql,args);await db.exec('commit');return r.rows as any[];}catch(e){await db.exec('rollback');throw e;}}
 const checklist={business_name:true,contact_email:true,relationship_evidence:true,existing_clients_checked:true,identity_resolved:true,ready:true};
 const payload={analysis_version:3,checklist,client_name:'Acme Studio',contact_email:'alex@acme.test',client_id:null,parent_id:null,task_id:null,due_date:'2026-11-10',estimated_hours:2};
-async function suggestion(uid=ids[3],kind='client',key=crypto.randomUUID(),patch={}){return (await db.query<{id:string}>(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,$2,$3,'November campaign','Write November copy',$4,'thread-1','Please prepare the November campaign') returning id`,[uid,kind,key,JSON.stringify({...payload,...patch})])).rows[0].id;}
+async function suggestion(uid=ids[3],kind='client',key=crypto.randomUUID(),patch={}){const project=(await db.query<any>("select p.id from public.projects p join public.clients c on c.id=p.client_id where c.name='Acme Studio' and p.is_default")).rows[0]?.id;return (await db.query<{id:string}>(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,$2,$3,'November campaign','Write November copy',$4,'thread-1','Please prepare the November campaign') returning id`,[uid,kind,key,JSON.stringify({...payload,project_id:kind==='task'?project:null,...patch})])).rows[0].id;}
 let clientId:string,taskId:string;
 test('supervisor is staff but cannot manage accounts or visibility',async()=>{
  assert.equal((await as(ids[2],'select public.is_internal_user() as staff'))[0].staff,true);
@@ -359,4 +359,69 @@ test('client support snapshot uses the shared projection and inactive users get 
  const inactive=(await as(ids[0],'select public.support_user_snapshot($1) as snapshot',[ids[4]]))[0].snapshot;
  assert.equal(inactive.inactive,true);assert.equal('clientView' in inactive,false);
  await db.query('update public.profiles set active=true where id=$1',[ids[4]]);
+});
+
+test('editing a suggestion accepts the edited task atomically in its selected project',async()=>{
+ const cid=(await db.query<any>("insert into public.clients(name) values('Edited client') returning id")).rows[0].id;
+ const project=(await as(ids[0],"insert into public.projects(client_id,name) values($1,'Selected project') returning id",[cid]))[0].id;
+ const sid=await suggestion(ids[3],'task',crypto.randomUUID(),{client_id:cid});
+ const s=(await db.query<any>('select * from public.sot_suggestions where id=$1',[sid])).rows[0];
+ const args=[sid,s.updated_at,'Edited task','Edited description',cid,project,null,'2026-11-20',3];
+ const sql='select public.sot_edit_and_accept($1,$2,$3,$4,$5,$6,$7,$8,$9) as id';
+ await assert.rejects(as(ids[1],sql,args),/not found/);
+ const rid=(await as(ids[3],sql,args))[0].id;
+ const w=(await db.query<any>('select * from public.work_items where id=$1',[rid])).rows[0];
+ assert.equal(w.project_id,project);assert.equal(w.title,'Edited task');assert.equal(w.description,'Edited description');assert.equal(w.assigned_user_id,ids[3]);assert.equal(Number(w.estimated_hours),3);
+ assert.equal((await as(ids[3],sql,args))[0].id,rid);
+ assert.equal((await db.query<any>("select count(*)::int n from public.workspace_audit where row_id=$1 and operation='EDIT_BEFORE_ADD'",[sid])).rows[0].n,1);
+});
+test('invalid or stale suggestion edits preserve the original pending suggestion',async()=>{
+ const cid=(await db.query<any>("insert into public.clients(name) values('Edit rejection client') returning id")).rows[0].id;
+ const project=(await db.query<any>('select id from public.projects where client_id=$1',[cid])).rows[0].id;
+ const sid=await suggestion(ids[3],'task',crypto.randomUUID(),{client_id:cid});
+ const s=(await db.query<any>('select * from public.sot_suggestions where id=$1',[sid])).rows[0];
+ const sql='select public.sot_edit_and_accept($1,$2,$3,$4,$5,$6,$7,$8,$9)';
+ await assert.rejects(as(ids[3],sql,[sid,s.updated_at,'Changed','Details',cid,crypto.randomUUID(),null,null,1]),/project belonging/);
+ await assert.rejects(as(ids[3],sql,[sid,'2000-01-01','Changed','Details',cid,project,null,null,1]),/Suggestion changed/);
+ const after=(await db.query<any>('select title,status,payload from public.sot_suggestions where id=$1',[sid])).rows[0];
+ assert.equal(after.title,s.title);assert.equal(after.status,'pending');assert.deepEqual(after.payload,s.payload);
+});
+
+
+test('unassigned projects require a choice and never silently fall back to General',async()=>{
+ const s=await suggestion(ids[3],'task',crypto.randomUUID(),{client_id:clientId,project_id:null,identity_confirmed:true});
+ await assert.rejects(as(ids[3],'select public.sot_accept($1)',[s]),/Choose a project/);
+ assert.equal((await db.query<any>('select status from public.sot_suggestions where id=$1',[s])).rows[0].status,'pending');
+});
+test('approved new project and first task are atomic, owned by the reviewing user and retry-safe',async()=>{
+ const s=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId,project_id:null,new_project_name:'Winter campaign'});
+ const stamp=(await db.query<any>('select updated_at from public.sot_suggestions where id=$1',[s])).rows[0].updated_at;
+ const args=[s,stamp,'Design winter campaign','Prepare the campaign',clientId,'Winter campaign','2026-12-01',3];
+ const sql='select public.sot_approve_project_and_task($1,$2,$3,$4,$5,$6,$7,$8) as id';
+ const id=(await as(ids[0],sql,args))[0].id;
+ assert.equal((await as(ids[0],sql,args))[0].id,id);
+ const w=(await db.query<any>('select w.assigned_user_id,p.name from public.work_items w join public.projects p on p.id=w.project_id where w.id=$1',[id])).rows[0];
+ assert.equal(w.name,'Winter campaign');assert.equal(w.assigned_user_id,ids[0]);
+ assert.equal((await db.query<any>("select count(*)::int n from public.projects where client_id=$1 and name='Winter campaign'",[clientId])).rows[0].n,1);
+});
+test('new project approval rejects employees, stale edits and rolls back if the task fails',async()=>{
+ const s=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId,project_id:null});
+ const stamp=(await db.query<any>('select updated_at from public.sot_suggestions where id=$1',[s])).rows[0].updated_at;
+ const sql='select public.sot_approve_project_and_task($1,$2,$3,$4,$5,$6,$7,$8)';
+ const args=[s,stamp,'New task','',clientId,'Must roll back',null,-1];
+ await assert.rejects(as(ids[3],sql,args),/Owner or admin/);
+ await assert.rejects(as(ids[1],sql,args),/not found/);
+ await assert.rejects(as(ids[0],sql,[s,'2000-01-01','Task','',clientId,'Stale',null,1]),/changed/);
+ await assert.rejects(as(ids[0],sql,args),/Invalid estimate/);
+ assert.equal((await db.query("select id from public.projects where name='Must roll back'")).rows.length,0);
+ await assert.rejects(as(ids[0],sql,[s,stamp,'Task','',clientId,'Winter campaign',null,1]),/already exists/);
+});
+
+test('duplicate task acceptance cannot leave an empty newly approved project',async()=>{
+ const original=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId,project_id:null});
+ const row=(await db.query<any>('select * from public.sot_suggestions where id=$1',[original])).rows[0];
+ await db.query('insert into public.sot_accepted(dedupe_key,kind,result_id) values($1,$2,$3)',[row.dedupe_key,'task',taskId]);
+ await assert.rejects(as(ids[0],'select public.sot_approve_project_and_task($1,$2,$3,$4,$5,$6,$7,$8)',[original,row.updated_at,'Copy','',clientId,'Duplicate project attempt',null,1]),/already added/);
+ assert.equal((await db.query("select id from public.projects where name='Duplicate project attempt'")).rows.length,0);
+ assert.equal((await db.query<any>('select status from public.sot_suggestions where id=$1',[original])).rows[0].status,'pending');
 });

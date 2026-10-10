@@ -1,3 +1,4 @@
+import { resolveProject } from './projects.ts';
 import { clientChecklist, clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
 import { addresses, agencyRelated, bounded, incrementalQuery, passInstructions, proposalSchema, STAFF_ROLES, STARTING_MAILBOX, validProposal, type Proposal } from './core.ts';
@@ -60,7 +61,8 @@ async function scan(uid:string) {
   const contactRows=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
   const profiles=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').limit(1000))||[];
   const clients=clientRows.map((c:any)=>({...c,...profiles.find((p:any)=>p.client_id===c.id),emails:contactRows.filter((r:any)=>r.client_id===c.id).map((r:any)=>r.email)}));
-  const tasks=checked(await db.from('work_items').select('id,client_id,parent_id,title,status,due_date,updated_at,archived_at').order('updated_at',{ascending:false}).limit(300))||[];
+  const tasks=checked(await db.from('work_items').select('id,client_id,project_id,parent_id,title,status,due_date,updated_at,archived_at').order('updated_at',{ascending:false}).limit(300))||[];
+  const projects=checked(await db.from('projects').select('id,client_id,name,description,stage').order('updated_at',{ascending:false}).limit(1000))||[];
   const reviews=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
   let made=0;
   for(const ref of list.threads||[]) {
@@ -81,12 +83,12 @@ async function scan(uid:string) {
    const matched=relationship.matched;
    if(matched && clients.find((c:any)=>c.id===matched.id)?.archived_at) continue;
    const relevantReviews=reviews.filter((r:any)=>contacts.includes(r.contact_email)||r.client_name===matched?.name).slice(0,12);
-   const context={clients:relevantClients.slice(0,80),tasks:tasks.slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
+   const context={clients:relevantClients.slice(0,80),projects:projects.filter((p:any)=>matched?p.client_id===matched.id:relationship.candidates.some(c=>c.id===p.client_id)).slice(0,30).map((p:any)=>({...p,description:bounded(p.description||'',500)})),tasks:tasks.filter((t:any)=>!matched||t.client_id===matched.id).slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
    let selected=messages;
    const inputMessages=(items:any[])=>items.map(({id,messageId,...rest})=>({...rest,source_message_id:id}));
    let input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});
    while(new TextEncoder().encode(input).length>16000 && selected.length>1) {selected=selected.slice(1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
-   if(new TextEncoder().encode(input).length>16000) {context.tasks=[];context.clients=relevantClients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
+   if(new TextEncoder().encode(input).length>16000) {context.tasks=[];context.projects=context.projects.map((p:any)=>({...p,description:''}));context.clients=relevantClients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
    while(new TextEncoder().encode(input).length>16000 && context.clients.length>1) {context.clients=context.clients.slice(0,-1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
    if(new TextEncoder().encode(input).length>16000) throw new Error('A conversation is too large to process safely. Contact the owner.');
    const passes:('clients'|'tasks')[]=relationship.allowNewClient?['clients','tasks']:['tasks'];
@@ -120,7 +122,7 @@ async function scan(uid:string) {
     if(p.kind!=='client'&&relationship.candidates.length>1) {checklist.ready=false;checklist.identity_resolved=false;checklist.possible_matches=relationship.candidates.map(c=>c.id);checklist.explanation='Multiple existing clients appear in this conversation. Confirm which client owns this work.';}
     if(!p.client_id && checklist.matched_client_id && checklist.identity_resolved) p.client_id=checklist.matched_client_id;
     if(p.kind==='client'&&checklist.matched_client_id&&checklist.identity_resolved) continue;
-    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,analysis_version:3,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
+    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,...resolveProject(p,context.projects,tasks,source.subject+' '+source.body),analysis_version:3,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
    }
    checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:rows}));
    made+=rows.length;

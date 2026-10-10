@@ -291,7 +291,7 @@ function LocalAppStateProvider({ children }: { children: ReactNode }) {
         ...d,
         clients: d.clients.filter((c) => c.id !== id),
         workItems: d.workItems.filter((w) => w.clientId !== id),
-        timeEntries: d.timeEntries.filter((e) => !removedWorkIds.includes(e.workItemId)),
+        timeEntries: d.timeEntries.filter((e) => e.clientId!==id && (!e.workItemId || !removedWorkIds.includes(e.workItemId))),
         users: d.users.filter((u) => !(u.role === "client" && u.clientId === id)),
         taskTemplates: d.taskTemplates.filter((t) => t.clientId !== id),
       };

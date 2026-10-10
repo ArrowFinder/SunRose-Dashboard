@@ -1,3 +1,6 @@
+import { SotProjectContext } from "./SotProjectContext";
+import { SotEditDialog } from "./SotEditDialog";
+import { hexOrDefault } from "../lib/color";
 import { SotClientChecklist } from './SotClientChecklist';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -18,10 +21,11 @@ function SupportSotReview(){
  {s?.connection?.last_error&&<p role="status">Scan paused: {s.connection.last_error}</p>}
  {s?.notifications?.map(n=><p key={n.id}>{n.message}</p>)}
  {!s?.suggestions?.length&&<p>No pending suggestions.</p>}
- {s?.suggestions?.map(item=><article className="card" key={item.id}><span className="badge">{({client:'Possible client',task:'Suggested task',update:'Task update',complete:'Task completion'})[item.kind]}</span><h3>{item.title}</h3><p>{item.description}</p><p className="muted">Client: {data.clients.find(c=>c.id===item.payload.client_id)?.name||item.payload.client_name} · Assigned to: {currentUser?.name} · {item.payload.due_date||'No deadline specified'}</p>{(item.kind==='client'&&!item.payload.checklist?.ready||item.payload.checklist?.identity_resolved===false)&&<p>Needs clarification: {item.payload.checklist?.explanation||'Confirm the client relationship before adding.'}</p>}<blockquote>{item.evidence}</blockquote><details><summary>Source email</summary>{item.source_subject}</details></article>)}
+ {s?.suggestions?.map(item=><article className="card" key={item.id} style={{borderLeft:`5px solid ${data.clients.find(c=>c.id===item.payload.client_id)?hexOrDefault(data.clients.find(c=>c.id===item.payload.client_id)!):"#78716c"}`}}><span className="badge">{({client:'Possible client',task:'Suggested task',update:'Task update',complete:'Task completion'})[item.kind]}</span><h3>{item.title}</h3><SotProjectContext suggestion={item}/><p>{item.description}</p><p className="muted">Client: {data.clients.find(c=>c.id===item.payload.client_id)?.name||item.payload.client_name} · Assigned to: {currentUser?.name} · {item.payload.due_date||'No deadline specified'}</p>{(item.kind==='client'&&!item.payload.checklist?.ready||item.payload.checklist?.identity_resolved===false)&&<p>Needs clarification: {item.payload.checklist?.explanation||'Confirm the client relationship before adding.'}</p>}<blockquote>{item.evidence}</blockquote><details><summary>Source email</summary>{item.source_subject}</details></article>)}
  </section>;
 }
 function LiveSotReview() {
+ const [editing,setEditing]=useState<SotSuggestion|null>(null);
  const {cloud,currentUser,data,refresh}=useAppState();
  const [params,setParams]=useSearchParams();
  const [connection,setConnection]=useState<SotConnection|null>(null);
@@ -100,10 +104,10 @@ function LiveSotReview() {
   {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
   {notifications.length>0&&<div className="stack"><h3>New tasks from SOT</h3>{notifications.map(n=>{const task=data.workItems.find(t=>t.id===n.task_id);return <div className="sot-notification" key={n.id}><p>{n.message}</p><div className="row">{task&&<Link to={`/client/${task.clientId}?month=${task.yearMonth}&task=${task.id}`}>View task</Link>}<button className="btn btn-ghost" disabled={!!busy} onClick={()=>void run(async()=>{const r=await getSupabase().rpc('sot_mark_read',{notification_id:n.id});if(r.error)throw new Error(r.error.message);await load();},n.id)}>Mark read</button></div></div>;})}</div>}
   {loaded&&suggestions.length===0&&<p className="muted">No suggestions waiting for review.{connection?' Scan emails to look for client requests.':''}</p>}
-  <div className="stack">{sorted.map((s,i)=><div key={s.id}>{(i===0||(sorted[i-1].kind==='client')!==(s.kind==='client'))&&<h3>{s.kind==='client'?'Possible Clients':'Task Suggestions'}</h3>}<article className="sot-suggestion" key={s.id}>
+  <div className="stack">{sorted.map((s,i)=><div key={s.id}>{(i===0||(sorted[i-1].kind==='client')!==(s.kind==='client'))&&<h3>{s.kind==='client'?'Possible Clients':'Task Suggestions'}</h3>}<article className="sot-suggestion" key={s.id} style={{borderLeft:`5px solid ${data.clients.find(c=>c.id===s.payload.client_id)?hexOrDefault(data.clients.find(c=>c.id===s.payload.client_id)!):"#78716c"}`}}>
    <span className="badge">{s.kind==='client'?'Suggested client':s.kind==='complete'?'Suggested completion':s.kind==='update'?'Suggested update':s.payload.parent_id?'Suggested subtask':'Suggested task'}</span>
    {s.payload.analysis_version!==3&&<p role="status">From the earlier scan: reassess this suggestion before adding it.</p>}
-   <h3>{s.title}</h3><p>{s.description}</p>
+   <h3>{s.title}</h3><SotProjectContext suggestion={s}/><p>{s.description}</p>
    <p className="muted">Client: {s.payload.client_name}{s.kind!=='client'&&<> · {s.kind==='task'?`Assigned to: ${currentUser?.name}`:'Existing assignee stays unchanged'} · {s.payload.due_date?`Due: ${s.payload.due_date}`:'No deadline specified'}{s.payload.estimated_hours!==null?` · Estimated: ${s.payload.estimated_hours}h`:' · No hours estimate supplied'}</>}</p>
    {s.kind==='client'&&<p className="muted">{s.payload.contact_email} · Retainer starts at 0 hours until configured.</p>}
    {(s.kind==='client'||s.payload.checklist?.identity_resolved===false)&&<SotClientChecklist suggestion={s} disabled={!!busy} onChanged={load}/>}
@@ -112,10 +116,12 @@ function LiveSotReview() {
    <details><summary>Why SOT suggested this</summary><blockquote>{s.evidence}</blockquote><p>{s.source_subject}</p>{connection&&<a href={`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(connection.email)}#all/${encodeURIComponent(s.source_thread)}`} target="_blank" rel="noreferrer">Open source email</a>}</details>
    <label>Reason if deleting (optional)<select value={reasons[s.id]||'unspecified'} onChange={e=>setReasons({...reasons,[s.id]:e.target.value})}><option value="unspecified">Just dismiss this suggestion</option><option value="vendor">Vendor, not a client</option><option value="sponsor_partner">Sponsor or partner</option><option value="not_client">Not a client</option><option value="duplicate">Duplicate</option><option value="already_done">Already completed</option><option value="not_our_responsibility">Someone else's responsibility</option><option value="not_actionable">Not actionable</option></select></label>
    <div className="row" style={{marginTop:'1rem'}}>
-    <button className="btn btn-primary" disabled={!!busy||s.payload.analysis_version!==3||(s.kind==='client'&&!s.payload.checklist?.ready)||s.payload.checklist?.identity_resolved===false} onClick={()=>void decide(s,true)}>{busy===s.id?'Saving…':s.kind==='complete'?'Mark complete':s.kind==='update'?'Apply update':'Add'}</button>
+    <button className="btn btn-primary" disabled={!!busy||(s.kind==='task'&&!s.payload.project_id&&!s.payload.parent_id)||s.payload.analysis_version!==3||(s.kind==='client'&&!s.payload.checklist?.ready)||s.payload.checklist?.identity_resolved===false} onClick={()=>void decide(s,true)}>{busy===s.id?'Saving…':s.kind==='complete'?'Mark complete':s.kind==='update'?'Apply update':'Add'}</button>
+    {s.kind!=="complete"&&<button className="btn" disabled={!!busy||s.payload.analysis_version!==3} onClick={()=>setEditing(s)}>Edit before adding</button>}
     <button className="btn btn-danger" disabled={!!busy} onClick={()=>void decide(s,false)}>Delete</button>
    </div>
   </article></div>)}</div>
+  {editing&&<SotEditDialog key={editing.id} suggestion={editing} onClose={()=>setEditing(null)} onAdded={async()=>{await load();await refresh?.();}}/>}
   {suggestions.length===200&&<p className="muted">Showing the first 200 suggestions. Review these to reveal the next ones.</p>}
  </section>;
 }

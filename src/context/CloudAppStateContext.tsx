@@ -10,6 +10,7 @@ import { useAuth } from "./AuthContext";
 import { getSupabase } from "../lib/supabaseClient";
 import {
   clientFromRow,
+  projectFromRow,
   workFromRow,
   userFromRow,
   templateFromRow,
@@ -117,7 +118,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
         });
         lastRevision.current = null; setTimer(null); setLoaded(true); setError(null); return;
       }
-      const [clients, work, users, times, templates, timer, memberships] =
+      const [clients, work, users, times, templates, timer, projects, memberships] =
         await Promise.all([
           pages((a, b) =>
             db.from("clients").select("*").order("id").range(a, b),
@@ -141,6 +142,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
               .eq("user_id", userId)
               .maybeSingle(),
           ),
+          pages((a,b)=>db.from("projects").select("*").order("id").range(a,b)),
           pages((a, b) =>
             db.from("client_members").select("*").order("user_id").range(a, b),
           ),
@@ -149,12 +151,13 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
       if (ticket !== generation.current || account.current !== userId) return;
       setData({
         clients: clients.map(clientFromRow),
+        projects: projects.map(projectFromRow),
         workItems: work.map(workFromRow),
         users: users.map((r) => ({
           ...userFromRow(r),
           clientId: memberships.find((m) => m.user_id === r.id)?.client_id,
         })),
-        timeEntries: times.map(timeFromRow),
+        timeEntries: times.map(t=>({...timeFromRow(t),clientId:projects.find(p=>p.id===t.project_id)?.client_id})),
         taskTemplates: templates.map(templateFromRow),
       });
       setTimer(
@@ -162,6 +165,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
           ? {
               userId: t.user_id,
               workItemId: t.work_item_id,
+              projectId: t.project_id,
               startedAt: t.started_at,
             }
           : null,
@@ -465,6 +469,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
             ? {
                 userId: t.user_id,
                 workItemId: t.work_item_id,
+              projectId: t.project_id,
                 startedAt: t.started_at,
               }
             : null,

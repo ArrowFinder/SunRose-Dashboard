@@ -1,3 +1,4 @@
+import { DueDateEditor } from "../components/DueDateEditor";
 import { SotReview } from "../components/SotReview";
 import { Link, Navigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
@@ -33,11 +34,10 @@ export function Overview() {
           const client=clients.find(c=>c.id===w.clientId)!;
           const parent=data.workItems.find(p=>p.id===w.parentId);
           const due=w.dueDate;
-          const dateLabel=due?new Date(`${due.slice(0,10)}T12:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"No due date";
-          return <li key={w.id}><Link className="overview-todo" to={viewPath(`/client/${w.clientId}/task/${w.id}`)} style={{borderLeftColor:hexOrDefault(client)}}>
-            <div><strong>{w.title}</strong><span className="overview-task-context">{client.name} · {data.users.find(u=>u.id===w.assignedUserId)?.name||"Unassigned"}</span>{parent&&<span className="overview-task-context">Subtask of {parent.title}</span>}</div>
-            <span className={`badge ${due&&due<today?"badge-danger":due===today?"badge-warn":""}`}>{due&&due<today?"Overdue · ":due===today?"Today · ":""}{dateLabel}</span>
-          </Link></li>;
+          return <li key={w.id}><div className="overview-todo" style={{borderLeftColor:hexOrDefault(client)}}>
+            <div><strong><Link to={viewPath(`/client/${w.clientId}/task/${w.id}`)}>{w.title}</Link></strong><span className="overview-task-context">{client.name}{data.projects?.find(p=>p.id===w.projectId)?` / ${data.projects.find(p=>p.id===w.projectId)!.name}`:""} · {data.users.find(u=>u.id===w.assignedUserId)?.name||"Unassigned"}</span>{parent&&<span className="overview-task-context">Subtask of {parent.title}</span>}</div>
+            <div className={`badge ${due&&due<today?"badge-danger":due===today?"badge-warn":""}`}>{due&&due<today?"Overdue · ":due===today?"Today · ":""}<DueDateEditor task={w}/></div>
+          </div></li>;
         })}</ul>}
     </section>
     <SotReview />

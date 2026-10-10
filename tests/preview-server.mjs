@@ -1,23 +1,13 @@
 // Local integration harness only. Never deploy: authentication is deliberately simulated.
 // Starts an in-memory PostgreSQL database with the real migrations and row policies.
 import http from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile,readdir } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 const db = new PGlite();
 await db.exec(
   `create role authenticated; create role anon; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}'); create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; grant usage on schema auth to authenticated,anon; grant execute on function auth.uid() to authenticated,anon;`,
 );
-for (const file of [
-  "20250201000000_profiles.sql",
-  "20260923000000_shared_workspace.sql",
-  "20260930000000_actual_hours_override.sql",
-  "20260930010000_subtasks.sql",
-  "20261001000000_account_names_and_roles.sql",
-  "20261002000000_supervisor_role.sql",
-  "20261002010000_sot.sql",
-  "20261003000000_sot_client_identity.sql",
-  "20261004000000_sot_review_memory.sql",
-])
+for (const file of (await readdir(new URL('../supabase/migrations/',import.meta.url))).sort())
   await db.exec(
     (
       await readFile(
@@ -50,11 +40,12 @@ insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duratio
 await db.exec(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,source_subject,evidence) values
 ('${users[0].id}','client','preview-client','Acme Studio','A client requesting help with their November email campaign.','{"client_name":"Acme Studio","contact_email":"alex@acme.test","client_id":null,"parent_id":null,"task_id":null,"due_date":null,"estimated_hours":null}','preview-thread','November campaign','Please help us put together our November email campaign.'),
 ('${users[0].id}','task','preview-task','Write the November email campaign','Draft the copy and send it to Alex for approval before launch.','{"client_name":"Acme Studio","contact_email":"alex@acme.test","client_id":null,"parent_id":null,"task_id":null,"due_date":"2026-11-10","estimated_hours":null}','preview-thread','November campaign','Could you have a draft ready by November 10?');`);
-await db.exec(`update public.sot_suggestions set payload=payload||'{"analysis_version":2,"checklist":{"business_name":true,"contact_email":true,"relationship_evidence":true,"existing_clients_checked":true,"identity_resolved":true,"ready":true},"relationship_evidence":"Please help us put together our November email campaign.","location":"Portland","business_type":"Design studio","aliases":["Acme"]}'::jsonb;
+await db.exec(`update public.sot_suggestions set payload=payload||'{"analysis_version":3,"checklist":{"business_name":true,"contact_email":true,"relationship_evidence":true,"existing_clients_checked":true,"identity_resolved":true,"ready":true},"relationship_evidence":"Please help us put together our November email campaign.","location":"Portland","business_type":"Design studio","aliases":["Acme"]}'::jsonb;
 insert into public.sot_client_contacts(email,client_id) values('sam@two.test','10000000-0000-4000-8000-000000000001');
 insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values('${users[0].id}','client','preview-shared-contact','Second Business','A contact who also works with Preview client is requesting work for Second Business.','{"client_name":"Second Business","contact_email":"sam@two.test","client_id":null,"parent_id":null,"task_id":null,"due_date":null,"estimated_hours":null,"checklist":{"business_name":true,"contact_email":true,"relationship_evidence":true,"existing_clients_checked":true,"identity_resolved":false,"ready":false,"explanation":"This contact also represents Preview client. Confirm which business this email concerns."}}','second-thread','Please create a campaign for Second Business.');`);
 await db.query("insert into public.sot_connections(user_id,email,last_error) values($1,'preview@example.test','Sample paused scan: monthly allowance reached.')",[users[0].id]);
 const allowed = new Set([
+  "projects",
   "sot_client_profiles",
   "sot_client_contacts",
   "sot_connections",
@@ -69,6 +60,7 @@ const allowed = new Set([
   "active_timers",
 ]);
 const rpc = new Set([
+  "save_time_log","start_project_timer","payroll_data","set_staff_pay_rate","create_pay_period","change_pay_period","support_user_snapshot","sot_edit_and_accept","sot_approve_project_and_task",
   "member_client_view",
   "workspace_revision",
   "start_work_timer",

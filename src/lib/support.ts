@@ -7,5 +7,5 @@ export type SupportSnapshot = {
  connection?: SotConnection | null;
  suggestions?: SotSuggestion[];
  notifications?: SotNotification[];
- timer?: {work_item_id:string;started_at:string;user_id:string}|null;
+ timer?: {work_item_id:string|null;project_id?:string;started_at:string;user_id:string}|null;
 };

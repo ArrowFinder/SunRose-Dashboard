@@ -34,7 +34,7 @@ function CalendarTaskChip({
   client: Client | undefined;
   color: string;
 }) {
-  const {viewPath=(p:string)=>p}=useAppState();
+  const {viewPath=(p:string)=>p,data}=useAppState();
   const label = client?.name ?? "Unknown client";
   return (
     <div className="calendar-chip-wrap">
@@ -51,6 +51,7 @@ function CalendarTaskChip({
           <span className="muted">Client</span>
           <span>{label}</span>
         </div>
+        <div className="calendar-tooltip-row"><span className="muted">Project</span><span>{data.projects?.find(p=>p.id===w.projectId)?.name||"General"}</span></div>
         <div className="calendar-tooltip-swatch" style={{ background: color }} aria-hidden />
         <div className="calendar-tooltip-row">
           <span className="muted">Due</span>
