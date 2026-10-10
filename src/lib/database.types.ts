@@ -119,6 +119,7 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      sot_approve_project_and_task: { Args: {suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string;approved_project_name:string;edited_due:string|null;edited_estimate:number|null}; Returns:string };
       sot_edit_and_accept:{Args:{suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string|null;selected_project:string|null;selected_parent:string|null;edited_due:string|null;edited_estimate:number|null};Returns:string};
       support_user_snapshot: { Args: { target_id:string }; Returns: import('./support').SupportSnapshot };
       set_task_archived: { Args:{task_id:string;archived:boolean};Returns:undefined };
