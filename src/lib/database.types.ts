@@ -127,6 +127,7 @@ export interface Database {
       change_pay_period: {Args:{period_id:string;expected_updated_at:string;action:string;reason:string};Returns:undefined};
       save_time_log: {Args:{request_id?:string;entry_id:string|null;expected_updated_at:string|null;selected_project:string;selected_task:string|null;entry_start:string;entry_end:string;entry_note:string;entry_billable:boolean};Returns:string};
       start_project_timer: {Args:{selected_project:string};Returns:TimerRow};
+      sot_accept_project: { Args: {suggestion_id:string;expected_updated_at:string;project_name:string;project_scope:string}; Returns:string };
       sot_approve_project_and_task: { Args: {suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string;approved_project_name:string;edited_due:string|null;edited_estimate:number|null}; Returns:string };
       sot_edit_and_accept:{Args:{suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string|null;selected_project:string|null;selected_parent:string|null;edited_due:string|null;edited_estimate:number|null};Returns:string};
       support_user_snapshot: { Args: { target_id:string }; Returns: import('./support').SupportSnapshot };

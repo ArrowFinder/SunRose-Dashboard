@@ -105,7 +105,7 @@ test('model proposals must cite real messages and real external contacts',()=>{
  assert(!validProposal({...good,due_date:'2026-02-31'},['m1'],['alex@acme.test']));
  assert(!validProposal({...good,estimated_hours:-1},['m1'],['alex@acme.test']));
 });
-test('later replies replace pending suggestions without recreating dismissed work',async()=>{
+test('later replies preserve pending suggestions and never recreate dismissed work',async()=>{
  await db.query('insert into public.sot_connections(user_id,email) values($1,$2)',[ids[3],'employee@sunrosecreative.com']);
  const p={kind:'task',dedupe_key:'scan-request',title:'Scan fixture',description:'First request',payload,source_subject:'Campaign',evidence:'Please draft it'};
  await db.query('select public.sot_store_thread($1,$2,$3,$4)',[ids[3],'scan-thread','v1',JSON.stringify([p])]);
@@ -115,7 +115,7 @@ test('later replies replace pending suggestions without recreating dismissed wor
  assert.equal((await as(ids[3],"select * from public.sot_suggestions where dedupe_key='scan-request' and status='pending'")).length,0);
  await db.query('select public.sot_store_thread($1,$2,$3,$4)',[ids[3],'scan-thread','v3',JSON.stringify([{...p,dedupe_key:'another-request'}])]);
  await db.query('select public.sot_store_thread($1,$2,$3,$4)',[ids[3],'scan-thread','v4','[]']);
- assert.equal((await as(ids[3],"select * from public.sot_suggestions where source_thread='scan-thread' and status='pending'")).length,0);
+ assert.equal((await as(ids[3],"select * from public.sot_suggestions where source_thread='scan-thread' and status='pending'")).length,1);
  await assert.rejects(as(ids[3],"select public.sot_store_thread($1,'x','x','[]')",[ids[3]]),/permission denied/);
 });
 
@@ -393,35 +393,57 @@ test('unassigned projects require a choice and never silently fall back to Gener
  await assert.rejects(as(ids[3],'select public.sot_accept($1)',[s]),/Choose a project/);
  assert.equal((await db.query<any>('select status from public.sot_suggestions where id=$1',[s])).rows[0].status,'pending');
 });
-test('approved new project and first task are atomic, owned by the reviewing user and retry-safe',async()=>{
- const s=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId,project_id:null,new_project_name:'Winter campaign'});
- const stamp=(await db.query<any>('select updated_at from public.sot_suggestions where id=$1',[s])).rows[0].updated_at;
- const args=[s,stamp,'Design winter campaign','Prepare the campaign',clientId,'Winter campaign','2026-12-01',3];
- const sql='select public.sot_approve_project_and_task($1,$2,$3,$4,$5,$6,$7,$8) as id';
+test('project approval creates no tasks, links pending work, and is retry-safe',async()=>{
+ const key='project:'+clientId+':winter campaign';
+ const sid=await suggestion(ids[0],'project',key,{client_id:clientId,analysis_version:4});
+ const task=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId,project_id:null,new_project_name:'Winter campaign',project_proposal_key:key});
+ const before=(await db.query<any>('select count(*)::int n from public.work_items')).rows[0].n;
+ const stamp=(await db.query<any>('select updated_at from public.sot_suggestions where id=$1',[sid])).rows[0].updated_at;
+ const sql='select public.sot_accept_project($1,$2,$3,$4) as id';
+ const args=[sid,stamp,'Winter campaign','Confirmed scope: winter email marketing'];
  const id=(await as(ids[0],sql,args))[0].id;
  assert.equal((await as(ids[0],sql,args))[0].id,id);
- const w=(await db.query<any>('select w.assigned_user_id,p.name from public.work_items w join public.projects p on p.id=w.project_id where w.id=$1',[id])).rows[0];
- assert.equal(w.name,'Winter campaign');assert.equal(w.assigned_user_id,ids[0]);
- assert.equal((await db.query<any>("select count(*)::int n from public.projects where client_id=$1 and name='Winter campaign'",[clientId])).rows[0].n,1);
+ assert.equal((await db.query<any>('select count(*)::int n from public.work_items')).rows[0].n,before);
+ const related=(await db.query<any>('select * from public.sot_suggestions where id=$1',[task])).rows[0];
+ assert.equal(related.status,'pending');assert.equal(related.payload.project_id,id);
+ assert.equal((await db.query<any>('select description from public.projects where id=$1',[id])).rows[0].description,args[3]);
 });
-test('new project approval rejects employees, stale edits and rolls back if the task fails',async()=>{
- const s=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId,project_id:null});
- const stamp=(await db.query<any>('select updated_at from public.sot_suggestions where id=$1',[s])).rows[0].updated_at;
- const sql='select public.sot_approve_project_and_task($1,$2,$3,$4,$5,$6,$7,$8)';
- const args=[s,stamp,'New task','',clientId,'Must roll back',null,-1];
- await assert.rejects(as(ids[3],sql,args),/Owner or admin/);
- await assert.rejects(as(ids[1],sql,args),/not found/);
- await assert.rejects(as(ids[0],sql,[s,'2000-01-01','Task','',clientId,'Stale',null,1]),/changed/);
- await assert.rejects(as(ids[0],sql,args),/Invalid estimate/);
- assert.equal((await db.query("select id from public.projects where name='Must roll back'")).rows.length,0);
- await assert.rejects(as(ids[0],sql,[s,stamp,'Task','',clientId,'Winter campaign',null,1]),/already exists/);
+test('project approval enforces role, ownership, active client, stale review and independent task approval',async()=>{
+ const sid=await suggestion(ids[0],'project',crypto.randomUUID(),{client_id:clientId,analysis_version:4});
+ const stamp=(await db.query<any>('select updated_at from public.sot_suggestions where id=$1',[sid])).rows[0].updated_at;
+ const sql='select public.sot_accept_project($1,$2,$3,$4)';
+ await assert.rejects(as(ids[3],sql,[sid,stamp,'No','Scope']),/Owner or admin/);
+ await assert.rejects(as(ids[1],sql,[sid,stamp,'No','Scope']),/not found/);
+ await assert.rejects(as(ids[0],sql,[sid,'2000-01-01','No','Scope']),/changed/);
+ await assert.rejects(as(ids[0],sql,[sid,stamp,'No','']),/scope are required/);
+ const task=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId});
+ await assert.rejects(as(ids[0],sql,[task,stamp,'No','Scope']),/project suggestion/);
+ await assert.rejects(as(ids[0],'select public.sot_approve_project_and_task($1,$2,$3,$4,$5,$6,$7,$8)',[task,stamp,'Task','',clientId,'No',null,1]),/separate project/);
 });
-
-test('duplicate task acceptance cannot leave an empty newly approved project',async()=>{
- const original=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId,project_id:null});
- const row=(await db.query<any>('select * from public.sot_suggestions where id=$1',[original])).rows[0];
- await db.query('insert into public.sot_accepted(dedupe_key,kind,result_id) values($1,$2,$3)',[row.dedupe_key,'task',taskId]);
- await assert.rejects(as(ids[0],'select public.sot_approve_project_and_task($1,$2,$3,$4,$5,$6,$7,$8)',[original,row.updated_at,'Copy','',clientId,'Duplicate project attempt',null,1]),/already added/);
- assert.equal((await db.query("select id from public.projects where name='Duplicate project attempt'")).rows.length,0);
- assert.equal((await db.query<any>('select status from public.sot_suggestions where id=$1',[original])).rows[0].status,'pending');
+test('project evidence merges across threads while archived corrections stay archived',async()=>{
+ const p={kind:'project',dedupe_key:'project-evidence',title:'Evidence campaign',description:'Scope',payload:{...payload,client_id:clientId,analysis_version:4},source_subject:'Campaign',evidence:'Please launch our campaign'};
+ await db.query('select public.sot_store_thread($1,$2,$3,$4)',[ids[3],'one','one',JSON.stringify([p])]);
+ await db.query('select public.sot_store_thread($1,$2,$3,$4)',[ids[3],'two','two',JSON.stringify([{...p,evidence:'The campaign includes newsletters'}])]);
+ const rows=(await db.query<any>("select * from public.sot_suggestions where dedupe_key='project-evidence'")).rows;
+ assert.equal(rows.length,1);assert.equal(rows[0].payload.supporting_sources.length,2);
+ await db.query(`update public.sot_suggestions set archived_at=now(),payload=payload||'{"user_edited":true}'::jsonb where id=$1`,[rows[0].id]);
+ await db.query('select public.sot_store_thread($1,$2,$3,$4)',[ids[3],'one','three',JSON.stringify([p])]);
+ assert.ok((await db.query<any>('select archived_at from public.sot_suggestions where id=$1',[rows[0].id])).rows[0].archived_at);
+});
+test('migration extracts embedded project proposals without creating official work',async()=>{
+ const isolated=new PGlite();
+ await isolated.exec(`create role authenticated;create role anon;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated,anon;grant execute on function auth.uid() to authenticated,anon;`);
+ const latest='20261010070000_sot_truth_projects.sql';
+ for(const name of (await readdir(migrationDir)).sort().filter(n=>n<latest))await isolated.exec((await readFile(new URL(name,migrationDir),'utf8')).replace('create extension if not exists "pgcrypto";',''));
+ await isolated.query("insert into auth.users(id,email,raw_user_meta_data) values($1,'test@example.test','{\"display_name\":\"Owner\"}')",[ids[0]]);
+ const cid=(await isolated.query<any>("insert into public.clients(name) values('LA Times Studios') returning id")).rows[0].id;
+ for(const [i,title] of ['Speaker assets','Newsletter ads'].entries())await isolated.query("insert into public.sot_suggestions(user_id,kind,dedupe_key,title,payload,source_thread,evidence) values($1,'task',$2,$3,$4,$2,'Quoted source')",[ids[0],'legacy'+i,title,JSON.stringify({...payload,client_id:cid,new_project_name:'Inspirational Women 2026'})]);
+ await isolated.exec(await readFile(new URL(latest,migrationDir),'utf8'));
+ const proposals=(await isolated.query<any>("select * from public.sot_suggestions where kind='project'")).rows;
+ assert.equal(proposals.length,1);assert.equal(proposals[0].payload.supporting_sources.length,2);
+ assert.match(proposals[0].description,/Speaker assets/);assert.match(proposals[0].description,/Newsletter ads/);
+ assert.equal((await isolated.query<any>('select * from public.work_items')).rows.length,0);
+ assert.equal((await isolated.query<any>('select * from public.projects where not is_default')).rows.length,0);
+ assert.equal((await isolated.query<any>("select * from public.sot_suggestions where kind='task' and status='pending' and payload->>'project_proposal_key'=$1",[proposals[0].dedupe_key])).rows.length,2);
+ await isolated.close();
 });

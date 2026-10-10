@@ -1,4 +1,7 @@
-# Current client work — October 9, 2026
+# Historical rollout: current-work scan, October 9, 2026
+
+Current behavior is maintained in [SOT_TRUTH_MODEL.md](SOT_TRUTH_MODEL.md). The deployment pause described below was a rollout step, not a recurring requirement.
+
 
 SOT now starts with a seven-day window of received and sent mail. Existing clients, accepted tasks, dismissed suggestions, review memory and the scan cache are preserved. The migration archives prior unreviewed suggestions without recording a rejection, clears the historical reassessment queue and pauses scheduling until deployment is complete.
 
