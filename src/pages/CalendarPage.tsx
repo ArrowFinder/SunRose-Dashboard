@@ -1,3 +1,4 @@
+import { projectLabel } from "../lib/projectAssignment";
 import { useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
@@ -51,7 +52,7 @@ function CalendarTaskChip({
           <span className="muted">Client</span>
           <span>{label}</span>
         </div>
-        <div className="calendar-tooltip-row"><span className="muted">Project</span><span>{data.projects?.find(p=>p.id===w.projectId)?.name||"General"}</span></div>
+        <div className="calendar-tooltip-row"><span className="muted">Project</span><span>{projectLabel(data.projects?.find(p=>p.id===w.projectId))}</span></div>
         <div className="calendar-tooltip-swatch" style={{ background: color }} aria-hidden />
         <div className="calendar-tooltip-row">
           <span className="muted">Due</span>

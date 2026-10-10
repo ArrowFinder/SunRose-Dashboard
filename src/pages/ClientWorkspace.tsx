@@ -1,3 +1,5 @@
+import {ProjectRequired} from "../components/ProjectRequired";
+import { projectLabel } from "../lib/projectAssignment";
 import { ClientAddAction } from "../components/ClientAddAction";
 import { DueDateEditor } from "../components/DueDateEditor";
 import { useEffect, useMemo, useState } from "react";
@@ -183,6 +185,7 @@ export function ClientWorkspace() {
         )}
       </div>
 
+      {taskRoot&&<ProjectRequired task={taskRoot}/>}
       {staff && snap && !taskId && !projectFilter && (
         <div className="card">
           <h2 style={{ marginBottom: "0.75rem" }}>{labelYearMonth(yearMonth)}</h2>
@@ -192,7 +195,7 @@ export function ClientWorkspace() {
       )}
 
       <div className="card">
-        {staff&&!taskId&&<><label>Project <select className="input" value={projectFilter} onChange={e=>{const next=new URLSearchParams(searchParams);if(e.target.value)next.set("project",e.target.value);else next.delete("project");setSearchParams(next);}}><option value="">All projects</option>{data.projects?.filter(p=>p.clientId===client.id).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Show archived tasks</label></>}
+        {staff&&!taskId&&<><label>Project <select className="input" value={projectFilter} onChange={e=>{const next=new URLSearchParams(searchParams);if(e.target.value)next.set("project",e.target.value);else next.delete("project");setSearchParams(next);}}><option value="">All projects</option>{data.projects?.filter(p=>p.clientId===client.id).map(p=><option key={p.id} value={p.id}>{projectLabel(p)}</option>)}</select></label><label><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Show archived tasks</label></>}
         <h2 style={{ marginBottom: "0.75rem" }}>{taskId?"Main task & subtasks":"Work this month"}</h2>
         {actionError && <p role="alert">{actionError}</p>}
         {items.length === 0 ? (
@@ -224,7 +227,7 @@ export function ClientWorkspace() {
                     <tr key={w.id} className={w.id===taskId?"task-selected":undefined}>
                       <td style={{minWidth:"220px",paddingLeft:w.parentId ? "1.5rem" : undefined}}>
                         {hasChildren && <button type="button" className="btn btn-ghost" aria-label={`${expanded.has(w.id) ? "Collapse" : "Expand"} ${w.title}`} aria-expanded={expanded.has(w.id)} onClick={() => setExpanded(old => { const next = new Set(old); next.has(w.id) ? next.delete(w.id) : next.add(w.id); return next; })}>{expanded.has(w.id) ? "▾" : "▸"}</button>}
-                        <span className="muted">{data.projects?.find(p=>p.id===w.projectId)?.name||w.projectName}</span><br/><strong><Link to={`/client/${client.id}/task/${w.id}`}>{w.parentId ? "↳ " : ""}{w.title}</Link></strong>
+                        <span className="muted">{projectLabel(data.projects?.find(p=>p.id===w.projectId))}</span><br/><strong><Link to={`/client/${client.id}/task/${w.id}`}>{w.parentId ? "↳ " : ""}{w.title}</Link></strong>
                         {hasChildren && <div className="muted">{summary.total?`${summary.done} of ${summary.total} complete`:"No active subtasks"}</div>}
                         {w.parentId && w.yearMonth !== yearMonth && <div className="muted">Scheduled {labelYearMonth(w.yearMonth)}</div>}
                         {w.description ? (

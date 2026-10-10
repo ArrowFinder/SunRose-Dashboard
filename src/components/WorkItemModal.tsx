@@ -1,3 +1,4 @@
+import { isAssignedProject } from "../lib/projectAssignment";
 import { useEffect, useState } from "react";
 import type { WorkItem } from "../lib/types";
 import type { User, TimeEntry } from "../lib/types";
@@ -41,7 +42,7 @@ export function WorkItemModal({
   defaultProjectId,
   assignableUsers,
 }: Props) {
-  const { currentUser, data, correctTimeEntry } = useAppState();
+  const { currentUser, data, correctTimeEntry, cloud } = useAppState();
   const hasChildren = initial ? subtasksFor(initial,data.workItems).length > 0 : false;
   const canOverride = (currentUser?.role === "owner" || currentUser?.role === "admin") && !hasChildren;
   const [showCorrectionWarning, setShowCorrectionWarning] = useState(false);
@@ -67,7 +68,8 @@ export function WorkItemModal({
 
   useEffect(() => {
     if (!open) return;
-    setProjectId(initial?.projectId??parentTask?.projectId??defaultProjectId??data.projects?.find(p=>p.clientId===clientId&&p.isDefault)?.id??"");
+    const candidate=initial?.projectId??parentTask?.projectId??defaultProjectId;
+    setProjectId(isAssignedProject(data.projects?.find(p=>p.id===candidate))?candidate!:"");
     setError(null);
     setOverrideEditing(false); setShowCorrectionWarning(false); setCorrectionSaved(false);
     setSelectedEntryId(data.timeEntries.filter(e => e.workItemId === initial?.id && !e.voidedAt).sort((a,b) => b.startedAt.localeCompare(a.startedAt))[0]?.id ?? "");
@@ -115,6 +117,7 @@ export function WorkItemModal({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
+    if(cloud&&!isAssignedProject(data.projects?.find(p=>p.id===projectId&&p.clientId===clientId))){setError("Choose a project for this task. If this is a subtask, assign its parent task first.");return;}
     if (overrideEditing) { setError("Apply or cancel the time correction before saving the task."); return; }
     const payload: Omit<WorkItem, "id" | "createdAt" | "updatedAt"> = {
       clientId,
@@ -157,7 +160,7 @@ export function WorkItemModal({
         <h2>{initial ? "Edit task" : parentTask ? "Add subtask" : "Add work item"}</h2>
         {parentTask && <p className="muted">Part of: <strong>{parentTask.title}</strong></p>}
         <form onSubmit={submit}>
-          {!!data.projects?.length&&<label>Project<select className="input" value={projectId} disabled={!!parentTask||!!initial?.parentId} onChange={e=>setProjectId(e.target.value)} required>{data.projects.filter(p=>p.clientId===clientId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>{initial&&!initial.parentId&&<small className="muted">Change this selection to move the task. Subtasks move with their parent; previously logged time stays with its original project.</small>}</label>}
+          {cloud&&<label>Project<select className="input" value={projectId} disabled={!!parentTask||!!initial?.parentId} onChange={e=>setProjectId(e.target.value)} required><option value="">Choose a project</option>{data.projects?.filter(p=>p.clientId===clientId&&isAssignedProject(p)).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>{initial&&!initial.parentId&&<small className="muted">Change this selection to move the task. Subtasks move with their parent; previously logged time stays with its original project.</small>}</label>}
           {error && <p role="alert">{error}</p>}
           <fieldset disabled={busy} style={{border:0,padding:0,margin:0}}>
           <div className="field">

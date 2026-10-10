@@ -12,8 +12,8 @@ for(const [i,role] of ['owner','employee','supervisor','client'].entries()){
 }
 async function as(id:string,sql:string,args:unknown[]=[]){await db.exec('begin');try{await db.exec('set local role authenticated');await db.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);const r=await db.query<any>(sql,args);await db.exec('commit');return r.rows;}catch(e){await db.exec('rollback');throw e;}}
 const cid=(await db.query<any>("insert into public.clients(name) values('Time client') returning id")).rows[0].id;
-const pid=(await db.query<any>('select id from public.projects where client_id=$1',[cid])).rows[0].id;
-const task=(await db.query<any>("insert into public.work_items(client_id,title,year_month) values($1,'Time task','2026-01') returning id",[cid])).rows[0].id;
+const pid=(await db.query<any>("insert into public.projects(client_id,name) values($1,'Time engagement') returning id",[cid])).rows[0].id;
+const task=(await db.query<any>("insert into public.work_items(client_id,project_id,title,year_month) values($1,$2,'Time task','2026-01') returning id",[cid,pid])).rows[0].id;
 const sql='select public.save_time_log($1,$2,$3,$4,$5,$6,$7,$8) as id';
 
 

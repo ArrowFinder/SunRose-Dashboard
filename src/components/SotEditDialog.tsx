@@ -1,3 +1,4 @@
+import { isAssignedProject } from "../lib/projectAssignment";
 import {useState} from 'react';
 import {useAppState} from '../context/AppStateContext';
 import {getSupabase} from '../lib/supabaseClient';
@@ -32,7 +33,7 @@ export function SotEditDialog({suggestion:s,onClose,onAdded}:{suggestion:SotSugg
     <label>{s.kind==='project'?'Project scope':'Description'}<textarea className="input" maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)}/></label>
     {s.kind==='task'&&<>
      <label>Client<select className="input" required value={client} onChange={e=>{setClient(e.target.value);setProject('');setParent('');}}><option value="">Choose client</option>{data.clients.filter(c=>!c.archivedAt).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-     <label>Project<select className="input" required value={project} onChange={e=>{setProject(e.target.value);setParent('');}}><option value="">Choose project</option>{data.projects?.filter(p=>p.clientId===client).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+     <label>Project<select className="input" required value={project} onChange={e=>{setProject(e.target.value);setParent('');}}><option value="">Choose project</option>{data.projects?.filter(p=>p.clientId===client&&isAssignedProject(p)).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
      {s.payload.new_project_name&&<p>Review the separate project suggestion for <strong>{s.payload.new_project_name}</strong> first, or choose an existing project.</p>}
      <label>Main task (optional)<select className="input" value={parent} onChange={e=>setParent(e.target.value)}><option value="">Create a main task</option>{data.workItems.filter(w=>w.clientId===client&&w.projectId===project&&!w.parentId&&!w.archivedAt).map(w=><option key={w.id} value={w.id}>{w.title}</option>)}</select></label>
     </>}

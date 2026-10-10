@@ -9,7 +9,7 @@ This is the current implementation contract. Historical deployment notes describ
 Client → Project → Task → Subtask.
 
 - Confirmed clients, contacts, domains, aliases and owner-maintained context anchor identity. A venue or sponsor mentioned by an existing client is normally scope context, not a new client.
-- Approved projects define distinct engagements, campaigns or ongoing workstreams. Different event dates remain separate projects. General is a manual fallback, never an inferred match.
+- Approved projects define distinct engagements, campaigns or ongoing workstreams. Different event dates remain separate projects. General is not an assignable project. Legacy tasks retain their historical references until a person assigns a specific project; the dashboard flags them as Project required.
 - A task is a specific outstanding Sunrose deliverable. A subtask belongs to an existing top-level task and inherits its project.
 - Source messages provide evidence about requests, delivery and changes. Approval establishes an organizational decision; it does not guarantee an email claim is objectively true or that a task remains outstanding forever.
 - Pending suggestions, prior scan summaries and inferred groupings are hypotheses. Never treat an inferred summary as a quotation or an accepted fact.
@@ -54,6 +54,6 @@ No Google Docs, attachments, external links, autonomous outbound messages, invoi
 
 ## Upgrade and validation
 
-Apply migrations in order through `20261010070000_sot_truth_projects.sql`, then deploy the SOT function and frontend. The migration extracts older embedded project proposals into independent cards and links their pending tasks, preserving originals and marking imported scope as unconfirmed. It does not create official projects or tasks. Existing approved business records and time history are unchanged.
+Apply migrations in order through `20261010080000_require_task_projects.sql`, then deploy the SOT function and frontend. The migration extracts older embedded project proposals into independent cards and links their pending tasks, preserving originals and marking imported scope as unconfirmed. It does not create official projects or tasks. Existing approved business records and time history are unchanged.
 
 Run `npm test`, `npm run build`, and a Deno type check. Tests cover standalone approval, role/ownership/stale-state controls, retry safety, independent task approval, source validation, exact dedupe, distinct event scopes, evidence aggregation and preserved review decisions. Automated tests do not establish live model accuracy. Validate a bounded real scan with Sierra when ready; distinguish actual observed results from expected behavior.

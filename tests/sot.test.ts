@@ -16,7 +16,8 @@ for(const [i,role] of ['owner','admin','supervisor','employee','client'].entries
 async function as(uid:string|null,sql:string,args:unknown[]=[]) {await db.exec('begin');try{await db.exec(uid?'set local role authenticated':'set local role anon');await db.query("select set_config('request.jwt.claim.sub',$1,true)",[uid||'']);const r=await db.query(sql,args);await db.exec('commit');return r.rows as any[];}catch(e){await db.exec('rollback');throw e;}}
 const checklist={business_name:true,contact_email:true,relationship_evidence:true,existing_clients_checked:true,identity_resolved:true,ready:true};
 const payload={analysis_version:3,checklist,client_name:'Acme Studio',contact_email:'alex@acme.test',client_id:null,parent_id:null,task_id:null,due_date:'2026-11-10',estimated_hours:2};
-async function suggestion(uid=ids[3],kind='client',key=crypto.randomUUID(),patch={}){const project=(await db.query<any>("select p.id from public.projects p join public.clients c on c.id=p.client_id where c.name='Acme Studio' and p.is_default")).rows[0]?.id;return (await db.query<{id:string}>(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,$2,$3,'November campaign','Write November copy',$4,'thread-1','Please prepare the November campaign') returning id`,[uid,kind,key,JSON.stringify({...payload,project_id:kind==='task'?project:null,...patch})])).rows[0].id;}
+async function suggestion(uid=ids[3],kind='client',key=crypto.randomUUID(),patch={}){const project=(await db.query<any>("select p.id from public.projects p join public.clients c on c.id=p.client_id where c.name='Acme Studio' and p.name='November engagement'")).rows[0]?.id;return (await db.query<{id:string}>(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,$2,$3,'November campaign','Write November copy',$4,'thread-1','Please prepare the November campaign') returning id`,[uid,kind,key,JSON.stringify({...payload,project_id:kind==='task'?project:null,...patch})])).rows[0].id;}
+async function fixtureProject(cid:unknown){return (await db.query<any>("insert into public.projects(client_id,name) values($1,'Fixture engagement') returning id",[cid])).rows[0].id;}
 let clientId:string,taskId:string;
 test('supervisor is staff but cannot manage accounts or visibility',async()=>{
  assert.equal((await as(ids[2],'select public.is_internal_user() as staff'))[0].staff,true);
@@ -33,6 +34,7 @@ test('suggestions and credentials are private, even from owner and admin',async(
  await assert.rejects(as(ids[3],"update public.sot_suggestions set payload='{}' where id=$1",[s]),/permission denied/);
  clientId=(await as(ids[3],'select public.sot_accept($1) as id',[s]))[0].id;
  assert.equal((await as(ids[3],'select public.sot_accept($1) as id',[s]))[0].id,clientId);
+ await db.query("insert into public.projects(client_id,name) values($1,'November engagement')",[clientId]);
  assert.equal((await db.query('select retainer_hours_per_month from public.clients where id=$1',[clientId])).rows[0].retainer_hours_per_month,'0');
 });
 test('Add fills supported fields, assigns mailbox owner and notifies only Owner and Supervisor',async()=>{
@@ -296,7 +298,8 @@ test('only owners/admins can save private client context and billing',async()=>{
 
 test('archive and restore preserve task history, protect active clocks and restrict roles',async()=>{
  const cid=(await db.query("insert into public.clients(name) values('Archive fixture') returning id")).rows[0].id;
- const root=(await db.query("insert into public.work_items(client_id,title,year_month) values($1,'Parent','2026-10') returning id",[cid])).rows[0].id;
+ const pid=await fixtureProject(cid);
+ const root=(await db.query("insert into public.work_items(client_id,project_id,title,year_month) values($1,$2,'Parent','2026-10') returning id",[cid,pid])).rows[0].id;
  const child=(await db.query("insert into public.work_items(client_id,parent_id,title,year_month,client_visible) values($1,$2,'Child','2026-10',true) returning id",[cid,root])).rows[0].id;
  await db.query("insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values($1,$2,'2026-10-01 10:00Z','2026-10-01 11:00Z',60)",[child,ids[3]]);
  await assert.rejects(as(ids[0],'delete from public.work_items where id=$1',[child]),/time records/);
@@ -315,17 +318,18 @@ test('archive and restore preserve task history, protect active clocks and restr
  await as(ids[0],'select public.set_client_archived($1,true)',[cid]);
  const token=(await db.query('select share_token from public.clients where id=$1',[cid])).rows[0].share_token;
  await assert.rejects(as(null,"select public.shared_client_view($1,'2026-10')",[token]),/not found/);
- await assert.rejects(as(ids[3],"insert into public.work_items(client_id,title,year_month) values($1,'New','2026-10')",[cid]),/Restore the client/);
+ await assert.rejects(as(ids[3],"insert into public.work_items(client_id,project_id,title,year_month) values($1,$2,'New','2026-10')",[cid,pid]),/Restore the client/);
  await as(ids[0],'select public.set_client_archived($1,false)',[cid]);
  assert.equal((await db.query('select client_visible from public.work_items where id=$1',[child])).rows[0].client_visible,false);
- const unused=(await db.query("insert into public.work_items(client_id,title,year_month) values($1,'Disposable','2026-10') returning id",[cid])).rows[0].id;
+ const unused=(await db.query("insert into public.work_items(client_id,project_id,title,year_month) values($1,$2,'Disposable','2026-10') returning id",[cid,pid])).rows[0].id;
  await as(ids[0],'delete from public.work_items where id=$1',[unused]);
  assert.equal((await db.query('select * from public.work_items where id=$1',[unused])).rows.length,0);
 });
 
 test('legacy manual time cannot be hard deleted',async()=>{
  const cid=(await db.query("insert into public.clients(name) values('Legacy archive fixture') returning id")).rows[0].id;
- const id=(await as(ids[0],"insert into public.work_items(client_id,title,year_month,actual_hours) values($1,'Legacy history','2026-10',3) returning id",[cid]))[0].id;
+ const pid=await fixtureProject(cid);
+ const id=(await as(ids[0],"insert into public.work_items(client_id,project_id,title,year_month,actual_hours) values($1,$2,'Legacy history','2026-10',3) returning id",[cid,pid]))[0].id;
  await assert.rejects(as(ids[0],'delete from public.work_items where id=$1',[id]),/time records/);
  await as(ids[0],'select public.set_task_archived($1,true)',[id]);
  assert.equal((await db.query('select actual_hours from public.work_items where id=$1',[id])).rows[0].actual_hours,'3');
@@ -349,8 +353,9 @@ test('support snapshots are restricted to active Owner/Admin and never expose cr
 });
 test('client support snapshot uses the shared projection and inactive users get no private data',async()=>{
  const cid=(await db.query<any>("insert into public.clients(name) values('Support privacy fixture') returning id")).rows[0].id;
+ const pid=await fixtureProject(cid);
  await db.query('insert into public.client_members(user_id,client_id) values($1,$2) on conflict(user_id) do update set client_id=excluded.client_id',[ids[4],cid]);
- await as(ids[0],"insert into public.work_items(client_id,title,year_month,client_visible) values($1,'Shared fixture','2026-10',true),($1,'Private fixture','2026-10',false)",[cid]);
+ await as(ids[0],"insert into public.work_items(client_id,project_id,title,year_month,client_visible) values($1,$2,'Shared fixture','2026-10',true),($1,$2,'Private fixture','2026-10',false)",[cid,pid]);
  const view=(await as(ids[1],'select public.support_user_snapshot($1) as snapshot',[ids[4]]))[0].snapshot;
  assert.deepEqual(view.clientView.items.map((w:any)=>w.title),['Shared fixture']);
  assert.equal('suggestions' in view,false);assert.equal('share_token' in view.clientView.client,false);
@@ -377,7 +382,7 @@ test('editing a suggestion accepts the edited task atomically in its selected pr
 });
 test('invalid or stale suggestion edits preserve the original pending suggestion',async()=>{
  const cid=(await db.query<any>("insert into public.clients(name) values('Edit rejection client') returning id")).rows[0].id;
- const project=(await db.query<any>('select id from public.projects where client_id=$1',[cid])).rows[0].id;
+ const project=await fixtureProject(cid);
  const sid=await suggestion(ids[3],'task',crypto.randomUUID(),{client_id:cid});
  const s=(await db.query<any>('select * from public.sot_suggestions where id=$1',[sid])).rows[0];
  const sql='select public.sot_edit_and_accept($1,$2,$3,$4,$5,$6,$7,$8,$9)';

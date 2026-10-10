@@ -1,3 +1,4 @@
+import { isAssignedProject } from "../lib/projectAssignment";
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppState } from '../context/AppStateContext';
@@ -10,7 +11,7 @@ export function ClientAddAction({clientId,defaultProjectId}:{clientId:string;def
  const [open,setOpen]=useState(false),[kind,setKind]=useState('task'),[projectId,setProjectId]=useState(defaultProjectId||''),[parentId,setParentId]=useState(''),[compose,setCompose]=useState(false);
  const client=data.clients.find(c=>c.id===clientId);
  if(!client||client.archivedAt||supportSnapshot||!isInternalUser(currentUser))return null;
- const projects=(data.projects||[]).filter(p=>p.clientId===clientId&&p.stage!=='completed');
+ const projects=(data.projects||[]).filter(p=>p.clientId===clientId&&isAssignedProject(p)&&p.stage!=='completed');
  const parents=data.workItems.filter(t=>t.clientId===clientId&&!t.parentId&&!t.archivedAt&&t.status!=='done'&&(!projectId||t.projectId===projectId));
  const parent=parents.find(t=>t.id===parentId);
  return <div className="stack">
