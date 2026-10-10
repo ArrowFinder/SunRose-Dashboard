@@ -1,18 +1,20 @@
 import { ViewControls,useViewPreference } from "./ViewControls";
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAppState } from '../context/AppStateContext';
 import { getSupabase } from '../lib/supabaseClient';
 import { isOwnerOrAdmin } from '../lib/permissions';
 import type { Project } from '../lib/types';
 import { effectiveActualHours } from '../lib/hours';
 export function ClientProjects({clientId}:{clientId:string}){
+ const [params,setParams]=useSearchParams();
  const [view,setView]=useViewPreference("projects");
  const [sort,setSort]=useState("az");
  const {data,currentUser,cloud,refresh}=useAppState();
  const [editing,setEditing]=useState<Project|null|undefined>(undefined),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const client=data.clients.find(c=>c.id===clientId);
  const manage=cloud&&isOwnerOrAdmin(currentUser)&&!client?.archivedAt;
+ useEffect(()=>{if(manage&&params.get('create')==='1'){setEditing(null);setError('');const next=new URLSearchParams(params);next.delete('create');setParams(next,{replace:true});}},[manage,params,setParams]);
  if(!cloud)return <p>Projects are available in the shared workspace.</p>;
  return <section className="stack"><div className="row" style={{justifyContent:'space-between'}}><h2>Projects</h2>{manage&&<button className="btn btn-primary" onClick={()=>{setEditing(null);setError('');}}>Add project</button>}</div>
  <p className="muted">Organize separate engagements for this client. General holds work that has not yet been organized into a specific project.</p>

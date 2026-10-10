@@ -1,3 +1,4 @@
+import { ClientAddAction } from "../components/ClientAddAction";
 import { DueDateEditor } from "../components/DueDateEditor";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -177,17 +178,7 @@ export function ClientWorkspace() {
             >
               From template
             </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => {
-                setParentTask(taskRoot??null);
-                setEditing(null);
-                setModalOpen(true);
-              }}
-            >
-              {taskRoot?"Add subtask":"Add task"}
-            </button>
+            {taskRoot?<button className="btn btn-primary" onClick={()=>{setParentTask(taskRoot);setEditing(null);setModalOpen(true);}}>Add subtask</button>:<ClientAddAction clientId={client.id} defaultProjectId={projectFilter||undefined}/>}
           </>
         )}
       </div>
