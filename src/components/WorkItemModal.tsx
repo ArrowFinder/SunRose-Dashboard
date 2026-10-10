@@ -157,7 +157,7 @@ export function WorkItemModal({
         <h2>{initial ? "Edit task" : parentTask ? "Add subtask" : "Add work item"}</h2>
         {parentTask && <p className="muted">Part of: <strong>{parentTask.title}</strong></p>}
         <form onSubmit={submit}>
-          {!!data.projects?.length&&<label>Project<select className="input" value={projectId} disabled={!!parentTask||!!initial?.parentId} onChange={e=>setProjectId(e.target.value)} required>{data.projects.filter(p=>p.clientId===clientId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
+          {!!data.projects?.length&&<label>Project<select className="input" value={projectId} disabled={!!parentTask||!!initial?.parentId} onChange={e=>setProjectId(e.target.value)} required>{data.projects.filter(p=>p.clientId===clientId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>{initial&&!initial.parentId&&<small className="muted">Change this selection to move the task. Subtasks move with their parent; previously logged time stays with its original project.</small>}</label>}
           {error && <p role="alert">{error}</p>}
           <fieldset disabled={busy} style={{border:0,padding:0,margin:0}}>
           <div className="field">
