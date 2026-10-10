@@ -121,6 +121,10 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      payroll_data: {Args:Record<string,never>;Returns:import('./payroll').PayrollData};
+      set_staff_pay_rate: {Args:{member:string;rate:number;currency_code:string};Returns:undefined};
+      create_pay_period: {Args:{member:string;first_day:string;last_day:string;zone:string;frequency:string};Returns:string};
+      change_pay_period: {Args:{period_id:string;expected_updated_at:string;action:string;reason:string};Returns:undefined};
       save_time_log: {Args:{request_id?:string;entry_id:string|null;expected_updated_at:string|null;selected_project:string;selected_task:string|null;entry_start:string;entry_end:string;entry_note:string;entry_billable:boolean};Returns:string};
       start_project_timer: {Args:{selected_project:string};Returns:TimerRow};
       sot_approve_project_and_task: { Args: {suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string;approved_project_name:string;edited_due:string|null;edited_estimate:number|null}; Returns:string };
