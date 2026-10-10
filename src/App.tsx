@@ -30,6 +30,7 @@ export default function App() {
               <Route index element={<Overview />} />
               <Route path="sot" element={<SotPage />} />
               <Route path="client/:clientId" element={<ClientHome />} />
+              <Route path="client/:clientId/projects" element={<ClientHome projects />} />
               <Route path="client/:clientId/details" element={<ClientHome details />} />
               <Route path="client/:clientId/tasks" element={<ClientWorkspace />} />
               <Route path="client/:clientId/task/:taskId" element={<ClientWorkspace />} />

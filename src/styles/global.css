@@ -648,3 +648,5 @@ table.data tr:hover td {
 .support-banner { border:2px solid var(--accent); background:var(--accent-soft); }
 .support-banner h1 { font-size:1.35rem; }
 .support-banner label { display:block; margin-top:1rem; }
+.project-fields { border:0; padding:0; display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+.project-fields label { display:flex; flex-direction:column; gap:.35rem; }

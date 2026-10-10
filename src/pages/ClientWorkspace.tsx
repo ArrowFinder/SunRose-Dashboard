@@ -21,7 +21,7 @@ export function ClientWorkspace() {
   const [showArchived,setShowArchived]=useState(false);
   const [removing,setRemoving]=useState<string|null>(null);
   const [pendingRemoval,setPendingRemoval]=useState<{id:string;mode:"delete"|"archive"|"restore"}|null>(null);
-  const [searchParams] = useSearchParams();
+  const [searchParams,setSearchParams] = useSearchParams();
   const { clientId,taskId } = useParams<{ clientId: string;taskId:string }>();
   const {
     data,
@@ -56,6 +56,7 @@ export function ClientWorkspace() {
     if (task) setExpanded(old => new Set([...old,task]));
   }, [searchParams]);
 
+  const projectFilter=searchParams.get("project")||"";
   const staff = isInternalUser(currentUser);
   const canEdit = currentUser && userCanAccessClient(currentUser, clientId ?? "") && staff;
 
@@ -89,13 +90,13 @@ export function ClientWorkspace() {
   const items = useMemo(() => {
     if (!clientId) return [];
     if(taskId)return taskRoot?[taskRoot]:[];
-    return taskRootsForMonth(data.workItems.filter(w=>showArchived||!w.archivedAt), clientId, yearMonth);
-  }, [data.workItems, clientId, yearMonth]);
+    return taskRootsForMonth(data.workItems.filter(w=>(showArchived||!w.archivedAt)&&(!projectFilter||w.projectId===projectFilter)), clientId, yearMonth);
+  }, [data.workItems, clientId, yearMonth, projectFilter, taskId, taskRoot, showArchived]);
 
   const entriesThisMonth = useMemo(() => {
-    const ids = new Set(data.workItems.filter(w => w.clientId === clientId&&(!taskId||w.id===taskRoot?.id||w.parentId===taskRoot?.id)).map(w => w.id));
+    const ids = new Set(data.workItems.filter(w => w.clientId === clientId&&(!projectFilter||w.projectId===projectFilter)&&(!taskId||w.id===taskRoot?.id||w.parentId===taskRoot?.id)).map(w => w.id));
     return data.timeEntries.filter((e) => ids.has(e.workItemId) && entryHoursInMonth(e, yearMonth) > 0 && !e.voidedAt);
-  }, [data.timeEntries, data.workItems, clientId, yearMonth,taskId,taskRoot,showArchived]);
+  }, [data.timeEntries, data.workItems, clientId, yearMonth,taskId,taskRoot,showArchived,projectFilter]);
 
   const clientTemplates = useMemo(
     () => data.taskTemplates.filter((t) => t.clientId === client?.id),
@@ -126,6 +127,7 @@ export function ClientWorkspace() {
     if (!client) return;
     await addWorkItem({
       clientId: client.id,
+      projectId: projectFilter||null,
       yearMonth,
       title: t.defaultTitle || t.name,
       description: t.defaultDescription,
@@ -189,7 +191,7 @@ export function ClientWorkspace() {
         )}
       </div>
 
-      {staff && snap && !taskId && (
+      {staff && snap && !taskId && !projectFilter && (
         <div className="card">
           <h2 style={{ marginBottom: "0.75rem" }}>{labelYearMonth(yearMonth)}</h2>
           <MonthSnapshot snap={snap} />
@@ -198,7 +200,7 @@ export function ClientWorkspace() {
       )}
 
       <div className="card">
-        {staff&&!taskId&&<label><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Show archived tasks</label>}
+        {staff&&!taskId&&<><label>Project <select className="input" value={projectFilter} onChange={e=>{const next=new URLSearchParams(searchParams);if(e.target.value)next.set("project",e.target.value);else next.delete("project");setSearchParams(next);}}><option value="">All projects</option>{data.projects?.filter(p=>p.clientId===client.id).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Show archived tasks</label></>}
         <h2 style={{ marginBottom: "0.75rem" }}>{taskId?"Main task & subtasks":"Work this month"}</h2>
         {actionError && <p role="alert">{actionError}</p>}
         {items.length === 0 ? (
@@ -230,7 +232,7 @@ export function ClientWorkspace() {
                     <tr key={w.id} className={w.id===taskId?"task-selected":undefined}>
                       <td style={{minWidth:"220px",paddingLeft:w.parentId ? "1.5rem" : undefined}}>
                         {hasChildren && <button type="button" className="btn btn-ghost" aria-label={`${expanded.has(w.id) ? "Collapse" : "Expand"} ${w.title}`} aria-expanded={expanded.has(w.id)} onClick={() => setExpanded(old => { const next = new Set(old); next.has(w.id) ? next.delete(w.id) : next.add(w.id); return next; })}>{expanded.has(w.id) ? "▾" : "▸"}</button>}
-                        <strong><Link to={`/client/${client.id}/task/${w.id}`}>{w.parentId ? "↳ " : ""}{w.title}</Link></strong>
+                        <span className="muted">{data.projects?.find(p=>p.id===w.projectId)?.name}</span><br/><strong><Link to={`/client/${client.id}/task/${w.id}`}>{w.parentId ? "↳ " : ""}{w.title}</Link></strong>
                         {hasChildren && <div className="muted">{summary.total?`${summary.done} of ${summary.total} complete`:"No active subtasks"}</div>}
                         {w.parentId && w.yearMonth !== yearMonth && <div className="muted">Scheduled {labelYearMonth(w.yearMonth)}</div>}
                         {w.description ? (
@@ -422,6 +424,7 @@ export function ClientWorkspace() {
         clientId={client.id}
         clientName={client.name}
         allowSaveAsTemplate={!!canEdit && staff && !parentTask && !(editing && subtasksFor(editing,data.workItems).length)}
+        defaultProjectId={projectFilter||undefined}
         defaultYearMonth={parentTask?.yearMonth ?? yearMonth}
         assignableUsers={assignableUsers}
         onSave={async (payload, opts) => {

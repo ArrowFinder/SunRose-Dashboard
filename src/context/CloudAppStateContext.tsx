@@ -10,6 +10,7 @@ import { useAuth } from "./AuthContext";
 import { getSupabase } from "../lib/supabaseClient";
 import {
   clientFromRow,
+  projectFromRow,
   workFromRow,
   userFromRow,
   templateFromRow,
@@ -117,7 +118,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
         });
         lastRevision.current = null; setTimer(null); setLoaded(true); setError(null); return;
       }
-      const [clients, work, users, times, templates, timer, memberships] =
+      const [clients, work, users, times, templates, timer, projects, memberships] =
         await Promise.all([
           pages((a, b) =>
             db.from("clients").select("*").order("id").range(a, b),
@@ -141,6 +142,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
               .eq("user_id", userId)
               .maybeSingle(),
           ),
+          pages((a,b)=>db.from("projects").select("*").order("id").range(a,b)),
           pages((a, b) =>
             db.from("client_members").select("*").order("user_id").range(a, b),
           ),
@@ -149,6 +151,7 @@ export function CloudAppStateProvider({ children }: { children: ReactNode }) {
       if (ticket !== generation.current || account.current !== userId) return;
       setData({
         clients: clients.map(clientFromRow),
+        projects: projects.map(projectFromRow),
         workItems: work.map(workFromRow),
         users: users.map((r) => ({
           ...userFromRow(r),

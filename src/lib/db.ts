@@ -1,5 +1,6 @@
 import Dexie, { type Table } from "dexie";
 import type {
+  Project,
   ActiveTimer,
   AppBundle,
   Client,
@@ -16,6 +17,7 @@ import { colorForClientId } from "./color";
 const META_TIMER_PREFIX = "timer:";
 
 export class SunroseDB extends Dexie {
+  projects!: Table<Project,string>;
   clients!: Table<Client, string>;
   workItems!: Table<WorkItem, string>;
   users!: Table<User, string>;
@@ -61,6 +63,7 @@ export class SunroseDB extends Dexie {
           });
         }
       });
+    this.version(3).stores({projects:"id, clientId"});
   }
 }
 
@@ -101,30 +104,33 @@ function normalizeTaskTemplateRow(
 }
 
 export async function loadBundle(): Promise<AppBundle> {
-  const [clients, workItems, users, timeEntries, taskTemplates] = await Promise.all([
+  const [clients, workItems, users, timeEntries, taskTemplates, projects] = await Promise.all([
     db.clients.toArray(),
     db.workItems.toArray(),
     db.users.toArray(),
     db.timeEntries.toArray(),
     db.taskTemplates.toArray(),
+    db.projects.toArray(),
   ]);
-  return { clients, workItems, users, timeEntries, taskTemplates };
+  return { clients, workItems, users, timeEntries, taskTemplates, projects };
 }
 
 export async function replaceAllBundle(bundle: AppBundle): Promise<void> {
   await db.transaction(
     "rw",
-    [db.clients, db.workItems, db.users, db.timeEntries, db.taskTemplates],
+    [db.clients, db.workItems, db.users, db.timeEntries, db.taskTemplates, db.projects],
     async () => {
       await db.clients.clear();
       await db.workItems.clear();
       await db.users.clear();
       await db.timeEntries.clear();
       await db.taskTemplates.clear();
+      await db.projects.clear();
       await db.clients.bulkPut(bundle.clients.map(normalizeClient));
       await db.workItems.bulkPut(bundle.workItems.map(normalizeWorkItem));
       await db.users.bulkPut(bundle.users);
       await db.timeEntries.bulkPut(bundle.timeEntries);
+      await db.projects.bulkPut(bundle.projects||[]);
       await db.taskTemplates.bulkPut(bundle.taskTemplates.map(normalizeTaskTemplateRow));
     }
   );

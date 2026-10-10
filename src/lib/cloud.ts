@@ -19,6 +19,7 @@ export const clientFromRow = (r: ClientRow): Client => ({
 });
 export const workFromRow = (r: WorkRow): WorkItem => ({
   id: r.id,
+  projectId:r.project_id,
   archivedAt:r.archived_at,
   parentId: r.parent_id,
   clientId: r.client_id,
@@ -72,6 +73,7 @@ export function workPatch(w: Partial<WorkItem>): Partial<WorkRow> {
   const out: Partial<WorkRow> = {};
   const fields = {
     parentId: "parent_id",
+    projectId: "project_id",
     clientId: "client_id",
     yearMonth: "year_month",
     title: "title",
@@ -106,3 +108,5 @@ export function templatePatch(t: Partial<TaskTemplate>): Partial<TemplateRow> {
     if (key in t) Object.assign(out, { [col]: t[key as keyof TaskTemplate] });
   return out;
 }
+
+export const projectFromRow = (r:import('./database.types').ProjectRow):import('./types').Project => ({id:r.id,clientId:r.client_id,name:r.name,description:r.description,stage:r.stage,isDefault:r.is_default,billingType:r.billing_type,hourlyRate:r.hourly_rate==null?null:Number(r.hourly_rate),fee:r.fee==null?null:Number(r.fee),hourBudget:r.hour_budget==null?null:Number(r.hour_budget),startDate:r.start_date,dueDate:r.due_date,createdAt:r.created_at,updatedAt:r.updated_at});

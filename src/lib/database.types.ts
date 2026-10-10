@@ -29,7 +29,13 @@ export type ClientRow = {
   color: string | null;
   created_at: string;
 };
+export type ProjectRow = {
+ id:string; client_id:string; name:string; description:string; stage:import('./types').Project['stage']; is_default:boolean;
+ billing_type:import('./types').Project['billingType']; hourly_rate:number|null; fee:number|null; hour_budget:number|null;
+ start_date:string|null; due_date:string|null; created_at:string; updated_at:string;
+};
 export type WorkRow = {
+  project_id:string;
   archived_at: string | null;
   parent_id: string | null;
   id: string;
@@ -92,6 +98,7 @@ export type SharedView = {
 export interface Database {
   public: {
     Tables: {
+      projects: Table<ProjectRow>;
       profiles: Table<ProfileRow>;
       clients: Table<ClientRow>;
       client_members: Table<{

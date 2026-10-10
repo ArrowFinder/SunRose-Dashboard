@@ -24,6 +24,7 @@ type Props = {
   /** Show “save as template for this client” (internal staff only) */
   allowSaveAsTemplate: boolean;
   defaultYearMonth: string;
+  defaultProjectId?: string;
   assignableUsers: User[];
 };
 
@@ -37,6 +38,7 @@ export function WorkItemModal({
   clientName,
   allowSaveAsTemplate,
   defaultYearMonth,
+  defaultProjectId,
   assignableUsers,
 }: Props) {
   const { currentUser, data, correctTimeEntry } = useAppState();
@@ -52,6 +54,7 @@ export function WorkItemModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientVisible, setClientVisible] = useState(false);
+  const [projectId,setProjectId]=useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [yearMonth, setYearMonth] = useState(defaultYearMonth);
@@ -64,6 +67,7 @@ export function WorkItemModal({
 
   useEffect(() => {
     if (!open) return;
+    setProjectId(initial?.projectId??parentTask?.projectId??defaultProjectId??data.projects?.find(p=>p.clientId===clientId&&p.isDefault)?.id??"");
     setError(null);
     setOverrideEditing(false); setShowCorrectionWarning(false); setCorrectionSaved(false);
     setSelectedEntryId(data.timeEntries.filter(e => e.workItemId === initial?.id && !e.voidedAt).sort((a,b) => b.startedAt.localeCompare(a.startedAt))[0]?.id ?? "");
@@ -89,7 +93,7 @@ export function WorkItemModal({
       setSaveAsTemplate(false);
       setTemplateLabel("");
     }
-  }, [open, initial, defaultYearMonth]);
+  }, [open, initial, defaultYearMonth, defaultProjectId, parentTask?.id]);
 
   if (!open) return null;
 
@@ -114,6 +118,7 @@ export function WorkItemModal({
     if (overrideEditing) { setError("Apply or cancel the time correction before saving the task."); return; }
     const payload: Omit<WorkItem, "id" | "createdAt" | "updatedAt"> = {
       clientId,
+      projectId:projectId||null,
       parentId: initial?.parentId ?? parentTask?.id ?? null,
       clientVisible,
       yearMonth: yearMonth || currentYearMonth(),
@@ -152,6 +157,7 @@ export function WorkItemModal({
         <h2>{initial ? "Edit task" : parentTask ? "Add subtask" : "Add work item"}</h2>
         {parentTask && <p className="muted">Part of: <strong>{parentTask.title}</strong></p>}
         <form onSubmit={submit}>
+          {!!data.projects?.length&&<label>Project<select className="input" value={projectId} disabled={!!parentTask||!!initial?.parentId} onChange={e=>setProjectId(e.target.value)} required>{data.projects.filter(p=>p.clientId===clientId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
           {error && <p role="alert">{error}</p>}
           <fieldset disabled={busy} style={{border:0,padding:0,margin:0}}>
           <div className="field">
