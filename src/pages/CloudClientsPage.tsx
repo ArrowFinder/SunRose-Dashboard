@@ -43,7 +43,7 @@ export function ClientEditor({ client }: { client: Client }) {
     }
   }
   return (
-    <section className="card">
+    <section className="card" style={{ borderLeft: `6px solid ${color}` }}>
       <h2>
         <Link to={`/client/${client.id}`}>{client.name}</Link>
       </h2>
@@ -91,10 +91,12 @@ export function ClientEditor({ client }: { client: Client }) {
                 />
               </label>
               <label>
-                Calendar color
+                Client color
+                <span className="client-color-preview"><span className="client-color-swatch" style={{backgroundColor:color}} aria-hidden="true"/><span>{color.toUpperCase()}</span></span>
                 <input
                   className="input"
                   type="color"
+                  aria-label="Choose client color"
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
                 />
