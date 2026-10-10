@@ -19,3 +19,8 @@ test('search, archive opt-in, status and hierarchy filters work independently',(
  assert.deepEqual(titles({project:'wrong'}),[]);
  assert.deepEqual(titles({from:'2026-11-01',to:'2026-10-01'}),[]);
 });
+test('project required filter distinguishes legacy General, missing and real projects',()=>{
+ const project={id:'real',clientId:'a',name:'October event',isDefault:false,description:'',stage:'active',billingType:'inherit',hourlyRate:null,fee:null,hourBudget:null,startDate:null,dueDate:null,createdAt:'',updatedAt:''} as const;
+ const fixture={...data,projects:[project,{...project,id:'old',name:'General',isDefault:true}],workItems:[task('real',{projectId:'real'}),task('old',{projectId:'old'}),task('missing',{projectId:null})]};
+ assert.deepEqual(filterTasks(fixture,{...defaultTaskFilters,project:'unassigned'},'2026-10-10').map(w=>w.id),['missing','old']);
+});

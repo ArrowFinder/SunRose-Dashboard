@@ -1,3 +1,5 @@
+import {ProjectRequired} from "../components/ProjectRequired";
+import {projectLabel} from "../lib/projectAssignment";
 import { TimeTrackingPage } from "./TimeTrackingPage";
 import { TasksPage } from "./TasksPage";
 import { useEffect, useState } from 'react';
@@ -64,7 +66,7 @@ function ReadOnlyWork(){
  return <section className="card stack" key={c.id}><h2>{c.name}</h2>{!clientRole&&<Link to={viewPath(`/client/${c.id}`)}>Open client work</Link>}
  {!clientRole&&clientId&&!taskId&&<CalendarPage clientId={c.id}/>}
  {taskId&&!selected&&<p>Task unavailable.</p>}
- {shown.map(w=>{const summary=taskSummary(w,data.workItems,data.timeEntries);return <article className="card" key={w.id}><h3>{w.parentId?'↳ ':''}{clientRole?w.title:<Link to={viewPath(`/client/${c.id}/task/${w.id}`)}>{w.title}</Link>}</h3><p>{data.projects?.find(p=>p.id===w.projectId)?.name||w.projectName}</p><p>{summary.status.replace('_',' ')} · Due: {w.dueDate||'Not scheduled'}{!clientRole&&` · ${data.users.find(u=>u.id===w.assignedUserId)?.name||'Unassigned'}`}</p>{summary.total>0&&<p>{summary.done}/{summary.total} subtasks complete</p>}{!clientRole&&<><p>{w.description}</p><p>Estimated: {summary.estimated}h · Actual: {summary.actual.toFixed(2)}h</p>{data.timeEntries.filter(t=>t.workItemId===w.id).map(t=><p className="muted" key={t.id}>{data.users.find(u=>u.id===t.userId)?.name||'Team member'} · {t.durationMinutes} minutes · {new Date(t.startedAt).toLocaleString()}{t.voidedAt?' · Voided':''}{t.note?` · ${t.note}`:''}</p>)}</>}</article>;})}
+ {shown.map(w=>{const summary=taskSummary(w,data.workItems,data.timeEntries);return <article className="card" key={w.id}><h3>{w.parentId?'↳ ':''}{clientRole?w.title:<Link to={viewPath(`/client/${c.id}/task/${w.id}`)}>{w.title}</Link>}</h3><p>{clientRole?w.projectName:projectLabel(data.projects?.find(p=>p.id===w.projectId))}</p><p>{summary.status.replace('_',' ')} · Due: {w.dueDate||'Not scheduled'}{!clientRole&&` · ${data.users.find(u=>u.id===w.assignedUserId)?.name||'Unassigned'}`}</p>{summary.total>0&&<p>{summary.done}/{summary.total} subtasks complete</p>}{!clientRole&&<><ProjectRequired task={w}/><p>{w.description}</p><p>Estimated: {summary.estimated}h · Actual: {summary.actual.toFixed(2)}h</p>{data.timeEntries.filter(t=>t.workItemId===w.id).map(t=><p className="muted" key={t.id}>{data.users.find(u=>u.id===t.userId)?.name||'Team member'} · {t.durationMinutes} minutes · {new Date(t.startedAt).toLocaleString()}{t.voidedAt?' · Voided':''}{t.note?` · ${t.note}`:''}</p>)}</>}</article>;})}
  {!shown.length&&<p>No tasks to display.</p>}
  </section>;})}</div>;
 }

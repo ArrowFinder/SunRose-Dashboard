@@ -1,3 +1,4 @@
+import {isAssignedProject} from './projectAssignment';
 import type {AppBundle,WorkItem} from './types';
 import {taskSummary} from './taskTree';
 export type TaskFilters={search:string;client:string;project:string;assignee:string;status:string;due:string;from:string;to:string;kind:string;archived:boolean;sort:string};
@@ -7,7 +8,8 @@ export function filterTasks(data:AppBundle,f:TaskFilters,today:string):WorkItem[
  return data.workItems.filter(w=>{
  const c=data.clients.find(c=>c.id===w.clientId),p=data.projects?.find(p=>p.id===w.projectId);
  if(!c||(!f.archived&&(c.archivedAt||w.archivedAt||data.workItems.some(parent=>parent.id===w.parentId&&parent.archivedAt))))return false;
- if(f.client&&w.clientId!==f.client||f.project&&w.projectId!==f.project)return false;
+ if(f.client&&w.clientId!==f.client)return false;
+ if(f.project==='unassigned'?isAssignedProject(p):f.project&&w.projectId!==f.project)return false;
  if(f.assignee==='unassigned'?!!w.assignedUserId:f.assignee&&w.assignedUserId!==f.assignee)return false;
  const status=statuses.get(w.id);
  if(f.status==='open'?status==='done':f.status&&status!==f.status)return false;

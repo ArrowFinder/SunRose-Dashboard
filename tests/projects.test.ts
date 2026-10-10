@@ -70,3 +70,20 @@ test('client task projection shows project names without internal billing fields
  assert.ok(item.projectId);assert.equal(item.projectName,'Event');
  assert.equal(item.fee,undefined);assert.equal(item.hourly_rate,undefined);assert.equal(item.description,undefined);
 });
+
+test('required project migration preserves legacy work and forbids new General assignments',async()=>{
+ await db.exec('delete from public.active_timers');
+ const legacy=(await db.query<any>("select w.* from public.work_items w join public.projects p on p.id=w.project_id where p.is_default limit 1")).rows[0];
+ const timeBefore=(await db.query('select * from public.time_entries order by id')).rows;
+ await db.exec(await readFile(new URL('20261010080000_require_task_projects.sql',dir),'utf8'));
+ await as(employee,'update public.work_items set description=$1 where id=$2',['Still usable while awaiting assignment',legacy.id]);
+ await assert.rejects(as(employee,"insert into public.work_items(client_id,title,year_month) values($1,'Missing project','2026-10')",[legacy.client_id]),/Choose a specific project/);
+ await assert.rejects(as(employee,"insert into public.work_items(client_id,project_id,title,year_month) values($1,$2,'General task','2026-10')",[legacy.client_id,legacy.project_id]),/Choose a specific project/);
+ await assert.rejects(as(owner,"insert into public.projects(client_id,name) values($1,' General ')",[legacy.client_id]),/specific project name/);
+ const p=(await as(owner,"insert into public.projects(client_id,name) values($1,'Actual engagement') returning id",[legacy.client_id]))[0].id;
+ await as(employee,'update public.work_items set project_id=$1 where id=$2',[p,legacy.id]);
+ await assert.rejects(as(employee,'update public.work_items set project_id=$1 where id=$2',[legacy.project_id,legacy.id]),/Choose a specific project/);
+ const c=(await as(owner,"insert into public.clients(name) values('No automatic project') returning id"))[0].id;
+ assert.equal((await db.query('select id from public.projects where client_id=$1',[c])).rows.length,0);
+ assert.deepEqual((await db.query('select * from public.time_entries order by id')).rows,timeBefore);
+});
