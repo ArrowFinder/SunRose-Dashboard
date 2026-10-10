@@ -5,7 +5,7 @@ import {PGlite} from '@electric-sql/pglite';
 const db=new PGlite();
 await db.exec(`create role authenticated;create role anon;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated,anon;grant execute on function auth.uid() to authenticated,anon;`);
 const dir=new URL('../supabase/migrations/',import.meta.url);const migration='20261010010000_projects.sql';
-for(const name of (await readdir(dir)).sort().filter(n=>n!==migration))await db.exec((await readFile(new URL(name,dir),'utf8')).replace('create extension if not exists "pgcrypto";',''));
+for(const name of (await readdir(dir)).sort().filter(n=>n<migration))await db.exec((await readFile(new URL(name,dir),'utf8')).replace('create extension if not exists "pgcrypto";',''));
 const owner='00000000-0000-4000-8000-000000000001',employee='00000000-0000-4000-8000-000000000002';
 await db.query(`insert into auth.users(id,email,raw_user_meta_data) values($1,'owner@test.test','{"display_name":"Owner"}'),($2,'employee@test.test','{"display_name":"Employee"}')`,[owner,employee]);
 await db.query("update public.profiles set role=case when id=$1 then 'owner'::public.app_role else 'employee'::public.app_role end",[owner]);
@@ -59,4 +59,14 @@ test('project fields survive workspace backup export and import',async()=>{
  const projects=JSON.parse(JSON.stringify((await db.query<any>('select * from public.projects')).rows)).map(projectFromRow);
  const bundle={clients:[],workItems:[],users:[],timeEntries:[],taskTemplates:[],projects};
  assert.deepEqual(parseImportFile(JSON.stringify(bundleToExport(bundle))).projects,projects);
+});
+
+
+test('client task projection shows project names without internal billing fields',async()=>{
+ await db.exec(await readFile(new URL('20261010030000_client_project_labels.sql',dir),'utf8'));
+ await db.query('update public.work_items set client_visible=true where id=$1',[root]);
+ const result=(await db.query<any>('select public.client_task_items($1) as items',[cid])).rows[0].items;
+ const item=result.find((w:any)=>w.id===root);
+ assert.ok(item.projectId);assert.equal(item.projectName,'Event');
+ assert.equal(item.fee,undefined);assert.equal(item.hourly_rate,undefined);assert.equal(item.description,undefined);
 });

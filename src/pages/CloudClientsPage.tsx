@@ -1,3 +1,4 @@
+import { ViewControls,useViewPreference } from "../components/ViewControls";
 import { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
@@ -158,6 +159,8 @@ export function ClientEditor({ client }: { client: Client }) {
   );
 }
 export function CloudClientsPage() {
+  const [view,setView]=useViewPreference("clients");
+  const [sort,setSort]=useState("az");
   const { data, currentUser, addClient, saving } = useAppState();
   const [showArchived,setShowArchived]=useState(false);
   const [name, setName] = useState("");
@@ -215,7 +218,8 @@ export function CloudClientsPage() {
         </form>
       </details>}
       <label><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Show archived clients</label>
-      <div className="client-directory">{data.clients.filter(c=>showArchived||!c.archivedAt).sort((a,b)=>a.name.localeCompare(b.name)).map(c=><Link className="card client-directory-card" key={c.id} to={`/client/${c.id}`} style={{borderLeft:`4px solid ${hexOrDefault(c)}`}}><h2>{c.name}{c.archivedAt?" · Archived":""}</h2><p className="muted">{c.billingType==='hourly'?'Hourly':'Retainer'} · {data.workItems.filter(w=>w.clientId===c.id&&!w.archivedAt&&!w.parentId&&w.status!=='done').length} open main tasks</p><span>Open client calendar →</span></Link>)}</div>
+      <div className="row"><ViewControls view={view} onChange={setView}/><label>Sort<select className="input" value={sort} onChange={e=>setSort(e.target.value)}><option value="az">Name A–Z</option><option value="za">Name Z–A</option></select></label></div>
+      <div className={view==="grid"?"client-directory":"stack"}>{data.clients.filter(c=>showArchived||!c.archivedAt).sort((a,b)=>(sort==="za"?-1:1)*a.name.localeCompare(b.name)).map(c=><Link className="card client-directory-card" key={c.id} to={`/client/${c.id}`} style={{borderLeft:`4px solid ${hexOrDefault(c)}`}}><h2>{c.name}{c.archivedAt?" · Archived":""}</h2><p className="muted">{c.billingType==='hourly'?'Hourly':'Retainer'} · {data.workItems.filter(w=>w.clientId===c.id&&!w.archivedAt&&!w.parentId&&w.status!=='done').length} open main tasks</p><span>Open client calendar →</span></Link>)}</div>
       {manage && (
         <section className="card">
           <h2>Backup</h2>

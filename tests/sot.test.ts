@@ -360,3 +360,29 @@ test('client support snapshot uses the shared projection and inactive users get 
  assert.equal(inactive.inactive,true);assert.equal('clientView' in inactive,false);
  await db.query('update public.profiles set active=true where id=$1',[ids[4]]);
 });
+
+test('editing a suggestion accepts the edited task atomically in its selected project',async()=>{
+ const cid=(await db.query<any>("insert into public.clients(name) values('Edited client') returning id")).rows[0].id;
+ const project=(await as(ids[0],"insert into public.projects(client_id,name) values($1,'Selected project') returning id",[cid]))[0].id;
+ const sid=await suggestion(ids[3],'task',crypto.randomUUID(),{client_id:cid});
+ const s=(await db.query<any>('select * from public.sot_suggestions where id=$1',[sid])).rows[0];
+ const args=[sid,s.updated_at,'Edited task','Edited description',cid,project,null,'2026-11-20',3];
+ const sql='select public.sot_edit_and_accept($1,$2,$3,$4,$5,$6,$7,$8,$9) as id';
+ await assert.rejects(as(ids[1],sql,args),/not found/);
+ const rid=(await as(ids[3],sql,args))[0].id;
+ const w=(await db.query<any>('select * from public.work_items where id=$1',[rid])).rows[0];
+ assert.equal(w.project_id,project);assert.equal(w.title,'Edited task');assert.equal(w.description,'Edited description');assert.equal(w.assigned_user_id,ids[3]);assert.equal(Number(w.estimated_hours),3);
+ assert.equal((await as(ids[3],sql,args))[0].id,rid);
+ assert.equal((await db.query<any>("select count(*)::int n from public.workspace_audit where row_id=$1 and operation='EDIT_BEFORE_ADD'",[sid])).rows[0].n,1);
+});
+test('invalid or stale suggestion edits preserve the original pending suggestion',async()=>{
+ const cid=(await db.query<any>("insert into public.clients(name) values('Edit rejection client') returning id")).rows[0].id;
+ const project=(await db.query<any>('select id from public.projects where client_id=$1',[cid])).rows[0].id;
+ const sid=await suggestion(ids[3],'task',crypto.randomUUID(),{client_id:cid});
+ const s=(await db.query<any>('select * from public.sot_suggestions where id=$1',[sid])).rows[0];
+ const sql='select public.sot_edit_and_accept($1,$2,$3,$4,$5,$6,$7,$8,$9)';
+ await assert.rejects(as(ids[3],sql,[sid,s.updated_at,'Changed','Details',cid,crypto.randomUUID(),null,null,1]),/project belonging/);
+ await assert.rejects(as(ids[3],sql,[sid,'2000-01-01','Changed','Details',cid,project,null,null,1]),/Suggestion changed/);
+ const after=(await db.query<any>('select title,status,payload from public.sot_suggestions where id=$1',[sid])).rows[0];
+ assert.equal(after.title,s.title);assert.equal(after.status,'pending');assert.deepEqual(after.payload,s.payload);
+});

@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
-    "test": "node --test tests/database.test.mjs && node --import tsx --test tests/hours.test.ts && node --import tsx --test tests/sot.test.ts && node --import tsx --test tests/projects.test.ts"
+    "test": "node --test tests/database.test.mjs && node --import tsx --test tests/hours.test.ts && node --import tsx --test tests/sot.test.ts && node --import tsx --test tests/projects.test.ts && node --import tsx --test tests/taskFilters.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.2",

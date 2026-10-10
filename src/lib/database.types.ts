@@ -87,6 +87,7 @@ export type SharedView = {
   client: { name: string };
   items: {
     id: string;
+    projectId?:string; projectName?:string;
     title: string;
     status: WorkItem["status"];
     dueDate: string | null;
@@ -118,6 +119,7 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      sot_edit_and_accept:{Args:{suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string|null;selected_project:string|null;selected_parent:string|null;edited_due:string|null;edited_estimate:number|null};Returns:string};
       support_user_snapshot: { Args: { target_id:string }; Returns: import('./support').SupportSnapshot };
       set_task_archived: { Args:{task_id:string;archived:boolean};Returns:undefined };
       set_client_archived: { Args:{client_id:string;archived:boolean};Returns:undefined };
@@ -132,7 +134,7 @@ export interface Database {
       sot_mark_read: { Args: { notification_id: string }; Returns: undefined };
       update_my_name: { Args: { new_name: string }; Returns: undefined };
       correct_time_entry: { Args: { entry_id: string; corrected_minutes: number; expected_minutes: number; expected_task_minutes: number }; Returns: undefined };
-      member_client_view: { Args: Record<string, never>; Returns: { client: { id: string; name: string; color: string | null; createdAt: string }; items: { id: string; clientId: string; title: string; status: WorkItem["status"]; dueDate: string | null; yearMonth: string; parentId: string | null; completedSubtasks: number; totalSubtasks: number }[] } | null };
+      member_client_view: { Args: Record<string, never>; Returns: { client: { id: string; name: string; color: string | null; createdAt: string }; items: { projectId?:string; projectName?:string; id: string; clientId: string; title: string; status: WorkItem["status"]; dueDate: string | null; yearMonth: string; parentId: string | null; completedSubtasks: number; totalSubtasks: number }[] } | null };
       workspace_revision: { Args: Record<string, never>; Returns: number | null };
       start_work_timer: {
         Args: { task_id: string; request_id: string };

@@ -650,3 +650,11 @@ table.data tr:hover td {
 .support-banner label { display:block; margin-top:1rem; }
 .project-fields { border:0; padding:0; display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
 .project-fields label { display:flex; flex-direction:column; gap:.35rem; }
+.task-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; align-items:end; }
+.task-filters label { display:flex; flex-direction:column; gap:.35rem; }
+.task-result { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+.task-result h2 { font-size:1.1rem; margin:0; }
+.due-editor { position:relative; }
+.due-popover { position:absolute; right:0; top:100%; z-index:10; min-width:280px; max-width:90vw; box-shadow:0 8px 24px #0002; }
+.due-popover .row { margin-top:.75rem; flex-wrap:wrap; }
+@media(max-width:640px){ .task-result { align-items:flex-start; flex-direction:column; } .due-popover { left:0;right:auto; } }

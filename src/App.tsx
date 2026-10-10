@@ -1,3 +1,4 @@
+import { TasksPage } from "./pages/TasksPage";
 import { SupportView } from "./pages/SupportView";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { PasswordRecovery } from "./components/PasswordRecovery";
@@ -28,6 +29,7 @@ export default function App() {
           <Route element={<RequireAuth />}>
             <Route element={<Layout />}>
               <Route index element={<Overview />} />
+              <Route path="tasks" element={<TasksPage />} />
               <Route path="sot" element={<SotPage />} />
               <Route path="client/:clientId" element={<ClientHome />} />
               <Route path="client/:clientId/projects" element={<ClientHome projects />} />

@@ -35,6 +35,7 @@ export interface Project {
 
 export interface WorkItem {
   projectId?: string | null;
+  projectName?: string | null;
   archivedAt?: string | null;
   parentId?: string | null;
   completedSubtasks?: number;

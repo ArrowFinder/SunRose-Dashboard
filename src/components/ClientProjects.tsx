@@ -1,3 +1,4 @@
+import { ViewControls,useViewPreference } from "./ViewControls";
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppState } from '../context/AppStateContext';
@@ -6,6 +7,8 @@ import { isOwnerOrAdmin } from '../lib/permissions';
 import type { Project } from '../lib/types';
 import { effectiveActualHours } from '../lib/hours';
 export function ClientProjects({clientId}:{clientId:string}){
+ const [view,setView]=useViewPreference("projects");
+ const [sort,setSort]=useState("az");
  const {data,currentUser,cloud,refresh}=useAppState();
  const [editing,setEditing]=useState<Project|null|undefined>(undefined),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const client=data.clients.find(c=>c.id===clientId);
@@ -29,7 +32,8 @@ export function ClientProjects({clientId}:{clientId:string}){
  <label>Project hour budget (optional)<input name="budget" type="number" min="0" step="0.25" className="input" defaultValue={editing?.hourBudget??''}/></label>
  <label>Start date<input name="start" type="date" className="input" defaultValue={editing?.startDate||''}/></label><label>Due date<input name="due" type="date" className="input" defaultValue={editing?.dueDate||''}/></label>
  <div className="row"><button className="btn btn-primary">{busy?'Saving…':'Save project'}</button><button type="button" className="btn" onClick={()=>setEditing(undefined)}>Cancel</button></div></fieldset><p className="muted">Billing settings record the agreement. They do not issue invoices or calculate payroll.</p></form>}
- <div className="grid-2">{(data.projects||[]).filter(p=>p.clientId===clientId).map(p=>{
+ <div className="row"><ViewControls view={view} onChange={setView}/><label>Sort<select className="input" value={sort} onChange={e=>setSort(e.target.value)}><option value="az">Name A–Z</option><option value="due">Nearest deadline</option></select></label></div>
+ <div className={view==="grid"?"grid-2":"stack"}>{(data.projects||[]).filter(p=>p.clientId===clientId).sort((a,b)=>sort==="due"?(a.dueDate||"9999").localeCompare(b.dueDate||"9999")||a.name.localeCompare(b.name):a.name.localeCompare(b.name)).map(p=>{
   const work=data.workItems.filter(w=>w.projectId===p.id);const hours=work.reduce((sum,w)=>sum+effectiveActualHours(w,data.timeEntries),0);
   return <article className="card" key={p.id}><h3><Link to={`/client/${clientId}/tasks?project=${p.id}`}>{p.name}</Link></h3><p>{p.stage.replace('_',' ')} · {work.filter(w=>!w.archivedAt&&!w.parentId).length} main tasks · {hours.toFixed(2)}h recorded</p><p>{p.description}</p><p className="muted">Billing: {p.billingType==='inherit'?'Use client billing':p.billingType.replace('_',' ')}{p.dueDate?` · Due ${p.dueDate}`:''}</p>{manage&&<button className="btn" onClick={()=>{setEditing(p);setError('');}}>Edit project</button>}</article>;
  })}</div></section>;

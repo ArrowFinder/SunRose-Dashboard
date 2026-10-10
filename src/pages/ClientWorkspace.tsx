@@ -1,3 +1,4 @@
+import { DueDateEditor } from "../components/DueDateEditor";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
@@ -232,7 +233,7 @@ export function ClientWorkspace() {
                     <tr key={w.id} className={w.id===taskId?"task-selected":undefined}>
                       <td style={{minWidth:"220px",paddingLeft:w.parentId ? "1.5rem" : undefined}}>
                         {hasChildren && <button type="button" className="btn btn-ghost" aria-label={`${expanded.has(w.id) ? "Collapse" : "Expand"} ${w.title}`} aria-expanded={expanded.has(w.id)} onClick={() => setExpanded(old => { const next = new Set(old); next.has(w.id) ? next.delete(w.id) : next.add(w.id); return next; })}>{expanded.has(w.id) ? "▾" : "▸"}</button>}
-                        <span className="muted">{data.projects?.find(p=>p.id===w.projectId)?.name}</span><br/><strong><Link to={`/client/${client.id}/task/${w.id}`}>{w.parentId ? "↳ " : ""}{w.title}</Link></strong>
+                        <span className="muted">{data.projects?.find(p=>p.id===w.projectId)?.name||w.projectName}</span><br/><strong><Link to={`/client/${client.id}/task/${w.id}`}>{w.parentId ? "↳ " : ""}{w.title}</Link></strong>
                         {hasChildren && <div className="muted">{summary.total?`${summary.done} of ${summary.total} complete`:"No active subtasks"}</div>}
                         {w.parentId && w.yearMonth !== yearMonth && <div className="muted">Scheduled {labelYearMonth(w.yearMonth)}</div>}
                         {w.description ? (
@@ -242,7 +243,7 @@ export function ClientWorkspace() {
                         ) : null}
                       </td>
                       {staff && <td>{data.users.find(u => u.id === w.assignedUserId)?.name ?? "Unassigned"}</td>}
-                      <td className="muted">{w.dueDate ? w.dueDate.slice(0, 10) : "—"}</td>
+                      <td className="muted"><DueDateEditor task={w}/></td>
                       <td>{STATUS_LABELS[summary.status]}</td>
                       {staff && <><td>{summary.estimated}</td>
                       <td>
