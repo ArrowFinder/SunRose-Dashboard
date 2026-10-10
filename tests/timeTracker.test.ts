@@ -89,3 +89,10 @@ test('project-only running clocks block client archiving',async()=>{
  await assert.rejects(as(ids[0],'update public.clients set archived_at=now() where id=$1',[cid]),/Stop project timers/);
  await as(ids[1],'select public.stop_work_timer($1,$2)',[null,t.started_at]);
 });
+
+test('minimum-minute timer entries count consistently at a report boundary',()=>{
+ const point=new Date('2026-01-01T00:00:00').toISOString();
+ const e={startedAt:point,endedAt:point,durationMinutes:1} as any;
+ assert.equal(rangeMinutes(e,'2026-01-01','2026-01-31'),1);
+ assert.equal(rangeMinutes(e,'2025-12-01','2025-12-31'),0);
+});

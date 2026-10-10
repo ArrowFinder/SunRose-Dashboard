@@ -12,7 +12,8 @@ export function rangeMinutes(e:TimeEntry,from:string,through:string){
  if(e.voidedAt)return 0;
  const start=Date.parse(e.startedAt),end=Date.parse(e.endedAt);
  const left=new Date(from+'T00:00:00').getTime(),rightDate=new Date(through+'T00:00:00');rightDate.setDate(rightDate.getDate()+1);
- if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)return 0;
+ if(!Number.isFinite(start)||!Number.isFinite(end)||end<start)return 0;
+ if(end===start)return start>=left&&start<rightDate.getTime()?e.durationMinutes:0;
  return e.durationMinutes*Math.max(0,Math.min(end,rightDate.getTime())-Math.max(start,left))/(end-start);
 }
 export function timeCsv(rows:(string|number)[][]){return rows.map(row=>row.map(v=>{const text=String(v);return '"'+(/^[\s]*[=+@\-\t\r]/.test(text)?"'"+text:text).replaceAll('"','""')+'"';}).join(',')).join('\r\n');}

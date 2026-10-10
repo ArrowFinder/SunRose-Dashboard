@@ -96,7 +96,7 @@ export function ClientWorkspace() {
 
   const entriesThisMonth = useMemo(() => {
     const ids = new Set(data.workItems.filter(w => w.clientId === clientId&&(!projectFilter||w.projectId===projectFilter)&&(!taskId||w.id===taskRoot?.id||w.parentId===taskRoot?.id)).map(w => w.id));
-    return data.timeEntries.filter((e) => ((!!e.workItemId && ids.has(e.workItemId)) || (!taskId && e.clientId===clientId && (!projectFilter||e.projectId===projectFilter))) && entryHoursInMonth(e, yearMonth) > 0 && !e.voidedAt);
+    return data.timeEntries.filter((e) => ((!!e.workItemId && ids.has(e.workItemId)) || (!taskId && e.clientId===clientId)) && (!projectFilter || (e.projectId ? e.projectId===projectFilter : !!e.workItemId && ids.has(e.workItemId))) && entryHoursInMonth(e, yearMonth) > 0 && !e.voidedAt);
   }, [data.timeEntries, data.workItems, clientId, yearMonth,taskId,taskRoot,showArchived,projectFilter]);
 
   const clientTemplates = useMemo(

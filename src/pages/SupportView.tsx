@@ -1,3 +1,4 @@
+import { TimeTrackingPage } from "./TimeTrackingPage";
 import { TasksPage } from "./TasksPage";
 import { useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
@@ -43,9 +44,9 @@ function SupportSession({targetId,actor}:{targetId:string;actor:Ctx}){
   </section>
   {error?<p role="alert">{error}</p>:!snapshot?<p role="status">Loading user view…</p>:snapshot.inactive?<p className="card">This account is inactive and cannot access the dashboard.</p>:<AppStateContext.Provider value={value}>
    {target?.role==='client'?<ReadOnlyWork/>:<>
-    <nav className="row" aria-label="User dashboard sections"><Link className="btn" to={prefix}>Overview</Link><Link className="btn" to={prefix+'/tasks'}>Tasks</Link><Link className="btn" to={prefix+'/sot'}>SOT</Link><Link className="btn" to={prefix+'/calendar'}>Calendar</Link><Link className="btn" to={prefix+'/clients'}>Clients</Link></nav>
-    {snapshot.timer&&<p className="card">Running timer: {actor.data.workItems.find(w=>w.id===snapshot.timer?.work_item_id)?.title||'Task'} · Started {new Date(snapshot.timer.started_at).toLocaleString()}</p>}
-    <Routes><Route index element={<Overview/>}/><Route path="tasks" element={<TasksPage/>}/><Route path="sot" element={<SotReview/>}/><Route path="calendar" element={<CalendarPage/>}/><Route path="clients" element={<ReadOnlyWork/>}/><Route path="client/:clientId/*" element={<ReadOnlyWork/>}/><Route path="*" element={<Navigate to={prefix} replace/>}/></Routes>
+    <nav className="row" aria-label="User dashboard sections"><Link className="btn" to={prefix}>Overview</Link><Link className="btn" to={prefix+'/tasks'}>Tasks</Link><Link className="btn" to={prefix+'/time'}>Time tracking</Link><Link className="btn" to={prefix+'/sot'}>SOT</Link><Link className="btn" to={prefix+'/calendar'}>Calendar</Link><Link className="btn" to={prefix+'/clients'}>Clients</Link></nav>
+    {snapshot.timer&&<p className="card">Running timer: {actor.data.workItems.find(w=>w.id===snapshot.timer?.work_item_id)?.title||actor.data.projects?.find(p=>p.id===snapshot.timer?.project_id)?.name||'Project time'} · Started {new Date(snapshot.timer.started_at).toLocaleString()}</p>}
+    <Routes><Route index element={<Overview/>}/><Route path="tasks" element={<TasksPage/>}/><Route path="time" element={<TimeTrackingPage/>}/><Route path="sot" element={<SotReview/>}/><Route path="calendar" element={<CalendarPage/>}/><Route path="clients" element={<ReadOnlyWork/>}/><Route path="client/:clientId/*" element={<ReadOnlyWork/>}/><Route path="*" element={<Navigate to={prefix} replace/>}/></Routes>
    </>}
   </AppStateContext.Provider>}
  </div>;
