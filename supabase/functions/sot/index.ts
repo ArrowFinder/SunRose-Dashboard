@@ -1,7 +1,8 @@
 import {createTeammate} from './team.ts';
 import { allPages, relevantWork } from './context.ts';
 import { cleanMessages, byteSize } from './sections.ts';
-import { packRelated, pacificHour, tokenCost, BATCH_RULES } from './batches.ts';
+import { pacificHour, tokenCost } from './batches.ts';
+import {conversationPacket,restoreSourceIds,CONVERSATION_RULES} from './conversations.ts';
 import {validateBatchThread} from './validation.ts';
 import { clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
@@ -137,20 +138,22 @@ async function scan(uid:string,manual=false) {
     if(!messages.length){await clearRetry();continue;}
     const older=cleaned.filter((m:any)=>Date.parse(m.date)<Date.parse(messages[0].date)).at(-1);
     const payload={messages,older_context:older?{subject:older.subject,body:bounded(older.body,1500),context_only:true}:null};
-    const large=byteSize(payload)>10000;
-    checked(await db.from('sot_mail_queue').upsert({user_id:uid,thread_id:ref.id,fingerprint,payload,status:large||old?.status==='review'?'review':'ready',reason:large?'Select a smaller group of messages to retry, or review in Gmail and resolve manually.':old?.status==='review'?'Conversation updated; review before retrying analysis.':null,focus_message_ids:null,oldest_at:messages[0].date,updated_at:new Date().toISOString()}));
+    const large=false; // Large conversations use resumable sections, not manual size deferral.
+    checked(await db.from('sot_mail_queue').upsert({user_id:uid,thread_id:ref.id,fingerprint,payload,status:old?.status==='review'?'review':'ready',reason:large?'Select a smaller group of messages to retry, or review in Gmail and resolve manually.':old?.status==='review'?'Conversation updated; review before retrying analysis.':null,focus_message_ids:null,oldest_at:messages[0].date,updated_at:new Date().toISOString()}));
     await clearRetry();
    }
    collecting=!!list.nextPageToken;
    checked(await db.from('sot_connections').update({collection_started:collecting?started:null,collection_cursor:list.nextPageToken||null,collected_through:collecting?c.collected_through:started}).eq('user_id',uid));
-   const queued:any[]=checked(await db.from('sot_mail_queue').select('*').eq('user_id',uid).eq('status','ready').order('oldest_at').limit(40))||[];
-   // Never batch different clients or ambiguous identities together. FIFO prevents old ready work from starving.
-   const ready=queued.map(t=>({...t,payload:{...t.payload,messages:t.focus_message_ids?t.payload.messages.filter((m:any)=>t.focus_message_ids.includes(m.id)):t.payload.messages}})).map(t=>({...t,group:relationshipFor(t).matched?.id||'thread:'+t.thread_id}));
-   await loadContext(ready);
-   const packed=packRelated(ready,contextFor);
-   if(packed?.oversized)checked(await db.from('sot_mail_queue').update({status:'review',reason:'Context and message exceed the safe batch size; focused review needed.'}).eq('user_id',uid).eq('thread_id',packed.oversized.thread_id));
-   if(packed?.input&&allowance.available>0){
-    job={id:crypto.randomUUID(),user_id:uid,status:'prepared',snapshot:{input:packed.input,threads:packed.threads.map(t=>({...t,message_ids:t.payload.messages.map((m:any)=>m.id)}))}};
+   checked(await db.from('sot_mail_queue').update({status:'ready',reason:null}).eq('user_id',uid).eq('status','review').in('reason',['Select a smaller group of messages to retry, or review in Gmail and resolve manually.','Too much new text for automatic review. Open the conversation in Gmail to identify focused work.','Context and message exceed the safe batch size; focused review needed.']));
+   const queued:any[]=await allPages((a,b)=>db.from('sot_mail_queue').select('*').eq('user_id',uid).eq('status','ready').order('thread_id').range(a,b));
+   queued.sort((a,b)=>Math.max(...b.payload.messages.map((m:any)=>Date.parse(m.date)))-Math.max(...a.payload.messages.map((m:any)=>Date.parse(m.date))));
+   const ready=queued.map(t=>({...t,payload:{...t.payload,messages:t.focus_message_ids?t.payload.messages.filter((m:any)=>t.focus_message_ids.includes(m.id)):t.payload.messages}}));
+   // Finish a checkpointed conversation, otherwise prioritize recent mail.
+   const first=ready.find(t=>t.payload.analysis)||ready[0];
+   if(first&&allowance.available>0){
+    await loadContext([first]);
+    const packet=conversationPacket(first,contextFor(first));
+    job={id:crypto.randomUUID(),user_id:uid,status:'prepared',snapshot:{...packet,threads:[{...first,message_ids:first.payload.messages.map((m:any)=>m.id)}]}};
     checked(await db.from('sot_batch_jobs').insert(job));
    }
   }
@@ -160,31 +163,41 @@ async function scan(uid:string,manual=false) {
    else {
     job.status='reserved';
     try {
-     const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:instructions.replace('Maximum 8 suggestions.','Maximum 20 suggestions.')+'\n'+BATCH_RULES,input:job.snapshot.input,max_output_tokens:6000,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:proposalSchema}}})});
+     const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:instructions+'\n'+CONVERSATION_RULES,input:job.snapshot.input,max_output_tokens:6000,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:job.snapshot.aliases?{...proposalSchema,properties:{suggestions:{...proposalSchema.properties.suggestions,items:{...proposalSchema.properties.suggestions.items,properties:{...proposalSchema.properties.suggestions.items.properties,source_message_id:{type:'string',enum:job.snapshot.aliases.map((a:any)=>a.alias)}}}}}}:proposalSchema}}})});
      const usage=tokenCost(response.usage);
      checked(await db.from('sot_batch_jobs').update(usage).eq('id',job.id));
      if(response.status!=='completed')throw new Error('Incomplete AI answer');
      const output=response.output?.flatMap((o:any)=>o.content||[]).filter((x:any)=>x.type==='output_text').map((x:any)=>x.text).join('');
-     const proposals=JSON.parse(output||'{}').suggestions;
+     const parsed=JSON.parse(output||'{}').suggestions;
+     const proposals=Array.isArray(parsed)?restoreSourceIds(parsed,job.snapshot.aliases||[]):parsed;
      if(!Array.isArray(proposals)||proposals.length>=20||proposals.some((p:any)=>!job.snapshot.threads.some((t:any)=>t.message_ids.includes(p.source_message_id))))throw new Error('Answer needs focused review');
      checked(await db.from('sot_batch_jobs').update({status:'answered',response:proposals}).eq('id',job.id));job.status='answered';job.response=proposals;
     }catch(error){
      // Do not auto-repeat an uncertain paid request. Keep receipts unset for human follow-up.
      for(const t of job.snapshot.threads)checked(await db.from('sot_mail_queue').update({status:'review',reason:'AI answer was incomplete or interrupted; review required before another paid attempt.'}).eq('user_id',uid).eq('thread_id',t.thread_id));
-     checked(await db.from('sot_batch_jobs').update({status:'review',reason:'Analysis needs review',finished_at:new Date().toISOString()}).eq('id',job.id));job.status='review';
+     checked(await db.from('sot_batch_jobs').update({status:'review',reason:error instanceof Error?error.message.slice(0,240):'Analysis needs review',finished_at:new Date().toISOString()}).eq('id',job.id));job.status='review';
     }
    }
   }
   if(job?.status==='answered'){
-   await loadContext(job.snapshot.threads);
-   const results=[];const batchRows:any[]=[];
-   for(const t of job.snapshot.threads){
-    const ids=new Set(t.message_ids),proposals=job.response.filter((p:any)=>ids.has(p.source_message_id));
-    const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,[...pending,...batchRows]);
-    batchRows.push(...rows);
-    results.push({thread_id:t.thread_id,fingerprint:t.fingerprint,proposals:rows});
+   const thread=job.snapshot.threads[0];
+   if(job.snapshot.total&&job.snapshot.index<job.snapshot.total-1){
+    const current=checked(await db.from('sot_mail_queue').select('payload,fingerprint').eq('user_id',uid).eq('thread_id',thread.thread_id).single());
+    if(!current||current.fingerprint!==thread.fingerprint)throw new Error('Conversation changed during analysis');
+    // Save checkpoint before closing the paid job. Replaying an answered job is idempotent.
+    if(current.payload.analysis?.job!==job.id)checked(await db.from('sot_mail_queue').update({payload:{...current.payload,analysis:{index:job.snapshot.index+1,candidates:job.response,job:job.id}},status:'ready'}).eq('user_id',uid).eq('thread_id',thread.thread_id));
+    checked(await db.from('sot_batch_jobs').update({status:'complete',snapshot:{},response:null,reason:'Conversation section saved',finished_at:new Date().toISOString()}).eq('id',job.id));
+   }else{
+    await loadContext(job.snapshot.threads);
+    const results=[];const batchRows:any[]=[];
+    for(const t of job.snapshot.threads){
+     const ids=new Set(t.message_ids),proposals=job.response.filter((p:any)=>ids.has(p.source_message_id));
+     const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,[...pending,...batchRows]);
+     batchRows.push(...rows);results.push({thread_id:t.thread_id,fingerprint:t.fingerprint,proposals:rows});
+    }
+    checked(await db.from('sot_batch_jobs').update({reason:JSON.stringify({proposed:job.response.length,validated:batchRows.length})}).eq('id',job.id));
+    made=checked(await db.rpc('sot_finish_batch',{job:job.id,results}));
    }
-   made=checked(await db.rpc('sot_finish_batch',{job:job.id,results}));
   }
   const report:any=checked(await db.rpc('sot_queue_report',{uid}));allowance=await budget();
   const more=!paused&&allowance.available>0&&(collecting||report.waiting>0);
