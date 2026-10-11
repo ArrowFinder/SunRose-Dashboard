@@ -78,3 +78,5 @@ A new task may represent outstanding or ongoing unfinished work; completed, canc
 The temporary October 11 repair-call exception and private diagnostic copies are operational debugging only, not permanent budget or retention policy changes.
 
 SOT suggestions remain proposals for the user, not automatic decisions. Inferred preparation work from a meeting invitation remains reviewable, with a visible caution that preparation was not explicitly requested. Users choose Add, Edit before adding, or Delete. Valid evidence and identity checks still distinguish the email's actual facts from inferred scope.
+
+One-time catch-up execution and spending verification: [October 11 backlog run](SOT_BACKLOG_RUN_2026-10-11.md).
