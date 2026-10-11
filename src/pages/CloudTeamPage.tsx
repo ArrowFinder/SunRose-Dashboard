@@ -1,3 +1,4 @@
+import {AddTeammate} from '../components/AddTeammate';
 import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
@@ -103,16 +104,15 @@ function Member({ member }: { member: User }) {
   );
 }
 export function CloudTeamPage() {
-  const { data, currentUser } = useAppState();
+  const { data, currentUser, supportSnapshot } = useAppState();
+  const [adding,setAdding]=useState(false);
   if (currentUser?.role === "client") return <Navigate to="/" replace />;
   return (
     <div className="stack">
       <h1>Team</h1>
-      <p>
-        Team members create an account from the app’s sign-in page. An owner or admin
-        then assigns their access here. New accounts cannot see
-        business work until assigned access.
-      </p>
+      {isOwnerOrAdmin(currentUser)&&!supportSnapshot&&<button className="btn btn-primary" onClick={()=>setAdding(true)}>Add teammate</button>}
+      {adding&&<AddTeammate onCancel={()=>setAdding(false)}/>}
+      <p>Add teammates here, then share their private setup link manually. Existing accounts are managed below.</p>
       <p className="muted">Owner and Admin have full workspace and account management access. Supervisors oversee all clients and employees. Employees manage work and track time. Clients see only work shared with their assigned business.</p>
       {data.users.map((u) => (
         <Member key={u.id} member={u} />

@@ -96,7 +96,7 @@ async function fetchProfileAndClient(
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const configured = isSupabaseConfigured();
-  const [passwordRecovery, setPasswordRecovery] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("type") === "recovery");
+  const [passwordRecovery, setPasswordRecovery] = useState(() => ["recovery","invite"].includes(new URLSearchParams(window.location.hash.slice(1)).get("type") || ""));
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<SupabaseProfile | null>(null);

@@ -168,6 +168,9 @@ export interface Database {
         };
         Returns: undefined;
       };
+      review_create_client: {Args:{client_name:string;client_context?:string};Returns:string};
+      review_create_project: {Args:{selected_client:string;project_name:string;project_scope?:string};Returns:string};
+      sot_review_submit: {Args:{suggestion_id:string;expected_updated_at:string;edited_title:string;edited_description:string;selected_client:string|null;selected_project:string|null;selected_parent:string|null;edited_due:string|null;edited_estimate:number|null;selected_assignee?:string|null};Returns:string};
       manage_member: {
         Args: {
           member_id: string;
