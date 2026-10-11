@@ -78,3 +78,11 @@ The temporary October 11 repair-call exception and private diagnostic copies are
 SOT suggestions remain proposals for the user, not automatic decisions. Inferred preparation work from a meeting invitation remains reviewable, with a visible caution that preparation was not explicitly requested. Users choose Add, Edit before adding, or Delete. Valid evidence and identity checks still distinguish the email's actual facts from inferred scope.
 
 One-time catch-up execution and spending verification: [October 11 backlog run](SOT_BACKLOG_RUN_2026-10-11.md).
+
+## Shared work editor
+
+SOT Edit before adding, client Add action/task editing, project editing, and the all-tasks page use `WorkEditor`. Pending suggestions can be classified as client, project, task or subtask; category changes preserve the draft. Existing update/completion suggestions also retain their original action as an option. Save reclassification and acceptance atomically through `sot_editor_submit`, with stale-review checks, role enforcement and acceptance replay protection. Original evidence stays attached and category changes are audited.
+
+Client/project/parent-task creation and teammate setup stay inside the editor. Explicitly created records persist even if the outer draft is cancelled; selectors immediately select the saved record. Client/project/teammate creation remains owner/admin-only. A task requires a specific client project; a subtask requires a parent in that project.
+
+Existing tasks can move between projects and become/reparent/promote subtasks within their original client. Their IDs and recorded time remain intact. Running clocks, nested subtasks and moving a main task with children underneath another task are rejected. Existing projects retain their entity type and client; converting an established project to a task, or moving established work across clients, is not provided by this release. Actual hours remain derived from time records; corrections use Time tracking. Local-only legacy mode retains its earlier task form.
