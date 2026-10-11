@@ -104,10 +104,16 @@ function LiveSotReview({showHistory}:{showHistory:boolean}) {
   {connection?<div className="sot-connection">
    <strong>{connection.email}</strong><span className="muted"> · Read-only Gmail access</span>
    <ScanProgress connection={connection} report={report} onChanged={()=>void load().catch(e=>setError(e.message))}/>
-   <p className="muted">20 calls per Pacific day · 600 monthly cap · up to 10 in a rolling three-hour window. Three calls are released per check; unused allowance carries forward that day, with two calls reserved for manual checks.</p>
-   {budget&&<p><strong>{budget.available} calls available now</strong> · {budget.daily_used}/{budget.daily_limit} today · {budget.monthly_used}/{budget.monthly_limit} this month. Daily reset: {new Date(budget.daily_reset).toLocaleString()}.</p>}
+   {budget?.mode==='usd'?<div aria-label="SOT spending">
+    <p><strong>${Number(budget.monthly_cost_usd).toFixed(2)} tracked this month</strong> / ${Number(budget.monthly_limit_usd).toFixed(2)} monthly ceiling · ${Number(budget.window_limit_usd).toFixed(2)} per scheduled window.</p>
+    {!!budget.monthly_reserved_usd&&<p>${Number(budget.monthly_reserved_usd).toFixed(2)} reserved for requests without final cost reporting.</p>}
+    {budget.warning_reached&&<p role="alert">SOT has reached the ${Number(budget.warning_usd).toFixed(2)} monthly warning level. The hard ceiling is ${Number(budget.monthly_limit_usd).toFixed(2)}.</p>}
+    {budget.pause_reason==='monthly_budget'&&<p role="status">Monthly spending allowance cannot safely fund another request. Unprocessed email is saved for the next month.</p>}
+    {budget.pause_reason==='scan_budget'&&<p role="status">This scan window’s allowance cannot safely fund another request. Saved work continues at the next scheduled check.</p>}
+    <p className="muted">The allowance is shared across connected inboxes. Manual checks share the current scan window. Costs are estimates for email analysis; older unmetered requests and website searches are excluded.</p>
+   </div>:budget&&<p>Spending information is refreshing. Next check: {new Date(budget.next_check).toLocaleString()}.</p>}
    {connection.last_error&&<p role="alert">Scan paused: {connection.last_error}</p>}
-   <p className="muted">{connection.auto_scan?'Automatic checks: 6 AM, 9 AM, noon, 3 PM, 6 PM and 9 PM Pacific. Queued batches continue within the released allowance; no automatic checks midnight–6 AM.':'Automatic checks are paused.'} Next eligible check: {new Date(connection.next_scan_at).toLocaleString()}.</p>
+   <p className="muted">{connection.auto_scan?'Automatic checks: 6 AM, 9 AM, noon, 3 PM, 6 PM and 9 PM Pacific. Queued conversations continue within the dollar allowance; no automatic checks midnight–6 AM.':'Automatic checks are paused.'} Next eligible check: {new Date(connection.next_scan_at).toLocaleString()}.</p>
    <button className="btn" disabled={!!busy} onClick={()=>void run(async()=>{const r=await getSupabase().rpc('sot_set_auto_scan',{enabled:!connection.auto_scan});if(r.error)throw new Error(r.error.message);await load();},'auto')}>{connection.auto_scan?'Pause automatic checks':'Enable automatic checks'}</button>
    <div className="row" style={{flexWrap:'wrap'}}>
     <button className="btn btn-primary" disabled={!!busy||!configured} onClick={()=>void scan()}>{busy==='scan'?'Reading email…':'Check email now'}</button>
