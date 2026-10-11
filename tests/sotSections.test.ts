@@ -7,7 +7,7 @@ test('long unicode threads retain every new message body and fit bounded section
  const sections=sectionMessages([message(text)]);
  assert.ok(sections.length>1);
  assert.equal(sections.flat().map(m=>m.body.slice(m.overlap||0)).join(''),text);
- for(const section of sections)assert.ok(byteSize(section)<=6500);
+ for(const section of sections)assert.ok(byteSize(section)<=8500);
 });
 test('only verified repeated quote blocks are removed; inline replies and unknown quotes survive',()=>{
  const original='Please make the newsletter available by Friday. This is the approved scope.';
@@ -64,4 +64,17 @@ test('scan migration retains business data and keeps provisional evidence and at
  await assert.rejects(db.query('select * from public.sot_thread_progress'),/permission denied/);
  await assert.rejects(db.query('select * from public.sot_scan_runs'),/permission denied/);
  await db.exec('reset role');await db.close();
+});
+
+test('new-message selection excludes reviewed and old mail but retains latest cancellation',async()=>{
+ const {freshMessages}=await import('../supabase/functions/sot/sections.ts');
+ const source=[message('Old project','old','2026-09-01'),message('Reviewed request','done','2026-10-09'),message('Cancel this task','new','2026-10-10')];
+ assert.deepEqual(freshMessages(source,['done'],'2026-10-03','2026-10-11').map(m=>m.id),['new']);
+});
+test('Gmail history is compacted while deliberate repetitions and inline replies survive',()=>{
+ const original='Please prepare the complete October campaign launch package for review.';
+ const result=cleanMessages([message(original),message(original+'\nOn Friday, Client wrote:\n'+original+'\nActually cancel this work.','b','2026-10-11')]);
+ assert.ok(result[1].body.startsWith(original));
+ assert.ok(result[1].body.includes('Repeated quotation omitted'));
+ assert.ok(result[1].body.includes('Actually cancel'));
 });

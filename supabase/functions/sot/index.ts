@@ -1,4 +1,4 @@
-import { sectionMessages, sectionInput, advanceSection, budgetRetryAt, SECTION_RULES } from './sections.ts';
+import { freshMessages, sectionMessages, sectionInput, advanceSection, budgetRetryAt, SECTION_RULES } from './sections.ts';
 import { supportedProposal, quoted, duplicateWork, proposalIdentity, canonical } from './truth.ts';
 import { resolveProject } from './projects.ts';
 import { clientChecklist, clientContext, websiteRequest, websiteResult } from './identity.ts';
@@ -47,7 +47,7 @@ function body(part:any):string {
  const plain=parts.filter((p:any)=>p.mimeType==='text/plain');
  if(plain.length) return plain.map(body).join('\n');
  if(parts.length) return parts.map(body).join('\n');
- return part.mimeType==='text/html'?decode(part.body?.data||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' '):'';
+ return part.mimeType==='text/html'?decode(part.body?.data||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<br\s*\/?\s*>|<\/(?:p|div|li|tr)>/gi,'\n').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' '):'';
 }
 async function scan(uid:string) {
  const lease=crypto.randomUUID();
@@ -96,7 +96,7 @@ async function scan(uid:string) {
    const fingerprint=await hash(JSON.stringify({messages,engine:'sections-v5'}));
    const cached=checked(await db.from('sot_scan_cache').select('fingerprint').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
    const legacyFingerprint=await hash(JSON.stringify({messages:messages.map((m:any)=>({...m,body:bounded(m.body,9000)})).slice(-12),engine:'truth-v4'}));
-   if(cached?.fingerprint===fingerprint||cached?.fingerprint===legacyFingerprint) {checked(await db.from('sot_thread_progress').delete().eq('user_id',uid).eq('thread_id',ref.id));continue;}
+   if(cached?.fingerprint===fingerprint||cached?.fingerprint===legacyFingerprint) continue;
    const contacts=addresses(messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' '));
    // Bound the full request, including context, rather than silently creating an expensive scan.
    const relationship=clientContext(contacts,messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
@@ -107,20 +107,25 @@ async function scan(uid:string) {
    const context={unconfirmed_suggestions:pending.filter((s:any)=>!s.archived_at&&s.status==='pending'&&(!matched||s.payload.client_id===matched.id)).slice(0,20).map((s:any)=>({id:s.id,kind:s.kind,title:s.title,scope:bounded(s.description,400),client_id:s.payload.client_id,project_id:s.payload.project_id,new_project_name:s.payload.new_project_name,evidence:bounded(s.evidence,300),source_subject:s.source_subject})),clients:relevantClients.slice(0,80),projects:projects.filter((p:any)=>matched?p.client_id===matched.id:relationship.candidates.some(c=>c.id===p.client_id)).slice(0,30).map((p:any)=>({...p,description:bounded(p.description||'',500)})),tasks:tasks.filter((t:any)=>matched?t.client_id===matched.id:relationship.candidates.some(c=>c.id===t.client_id)).slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
    let passes:('clients'|'tasks')[]=relationship.allowNewClient?['clients','tasks']:['tasks'];
    let progress=checked(await db.from('sot_thread_progress').select('*').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
-   if(!progress||progress.fingerprint!==fingerprint){
-    progress={user_id:uid,thread_id:ref.id,fingerprint,section_index:0,pass_index:0,candidates:{_passes:passes},status:'pending',error:null};
+   const after=new Date(Math.max(Date.parse(context.current_window.after),Date.parse(started)-7*86400000)).toISOString();
+   const selected=freshMessages(messages,progress?.candidates?._processed||[],after,started);
+   if(!selected.length){checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:[]}));continue;}
+   if(!progress||progress.fingerprint!==fingerprint||progress.candidates._engine!=='fresh-v1'){
+    progress={user_id:uid,thread_id:ref.id,fingerprint,section_index:0,pass_index:0,candidates:{_passes:passes,_engine:'fresh-v1',_processed:progress?.candidates?._processed||[]},status:'pending',error:null};
     checked(await db.from('sot_thread_progress').upsert(progress));
    }
    passes=progress.candidates._passes||passes;
-   const selected=messages;
+
    let proposals:Proposal[]=[];
    try {
-    if(new TextEncoder().encode(JSON.stringify(messages)).length>500000)throw new Error('Very large conversation deferred for review; other emails will continue.');
-    const sections=sectionMessages(messages);
+    if(new TextEncoder().encode(JSON.stringify(selected)).length>500000)throw new Error('Very large conversation deferred for review; other emails will continue.');
+    const sections=sectionMessages(selected);
+    if(sections.length>4)throw new Error('Conversation needs focused review: more than four sections of new content. Deferred without spending AI calls so other emails can continue.');
     const section=progress.section_index,passIndex=progress.pass_index;
     if(section<sections.length){
      const pass=passes[passIndex];
-     const input=sectionInput(context,sections[section],progress.candidates[pass]||[],section,sections.length,new Date().toISOString().slice(0,10));
+     const priorMessage=messages.filter((m:any)=>Date.parse(m.date)<Date.parse(selected[0].date)).at(-1);
+     const input=sectionInput({...context,older_context:priorMessage?{subject:priorMessage.subject,body:bounded(priorMessage.body,2000),context_only:true}:null},sections[section],progress.candidates[pass]||[],section,sections.length,new Date().toISOString().slice(0,10));
      if(!checked(await db.rpc('sot_reserve_current_calls',{calls:1})))throw new Error('SOT reached a spending limit. Section progress is saved; automatic checks will retry later.');
      const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:passInstructions(pass)+'\n'+SECTION_RULES,input,max_output_tokens:2400,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:proposalSchema}}})});
      if(response.status!=='completed')throw new Error('AI response incomplete; this conversation is deferred for another attempt.');
@@ -176,7 +181,7 @@ async function scan(uid:string) {
     rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,project_proposal_key:projectKey,possible_duplicate_id:duplicate?.id||null,uncertainty:[p.uncertainty,duplicate?'Possible duplicate: compare the existing work before adding.':''].filter(Boolean).join(' '),analysis_version:4,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
    }
    checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:rows}));
-   checked(await db.from('sot_thread_progress').delete().eq('user_id',uid).eq('thread_id',ref.id));
+   checked(await db.from('sot_thread_progress').upsert({...progress,status:'complete',candidates:{_engine:'fresh-v1',_processed:[...new Set([...(progress.candidates._processed||[]),...selected.map((m:any)=>m.id)])]},updated_at:new Date().toISOString()}));
    made+=rows.length;
   }
   const deferred=checked(await db.from('sot_thread_progress').select('thread_id').eq('user_id',uid).eq('status','deferred'))||[];
