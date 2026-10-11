@@ -44,9 +44,9 @@ Accepted/dismissed review history is retrieved as context; it is not model train
 
 ## Current operating limits
 
-Read-only Gmail inbox and sent mail. Current-work query starts at seven days, then uses a one-day overlap after the last completed scan. Selected threads may include up to 12 messages from the prior 90 days for context. Unchanged fingerprints skip AI calls. Engine changes reconsider only threads returned by this bounded query, not the whole mailbox.
+Read-only Gmail inbox and sent mail. Current-work query starts at seven days, then uses a one-day overlap after the last completed scan. Selected threads may include messages from the prior 90 days, with oversized threads deferred at 500 KB for context. Unchanged fingerprints skip AI calls. Engine changes reconsider only threads returned by this bounded query, not the whole mailbox.
 
-Known-client mail uses one work-analysis call (projects/tasks/updates/completions); unknown relationships may add a separate client-discovery call. No extra project-only API pass is added. Serialized input stays within 16,000 UTF-8 bytes, output within 2,400 tokens, and each pass proposes at most eight items. Too-large context fails with a visible error rather than silently discarding all known tasks.
+Known-client mail uses one work-analysis call (projects/tasks/updates/completions); unknown relationships may add a separate client-discovery call. No extra project-only API pass is added. Serialized input stays within 16,000 UTF-8 bytes, output within 2,400 tokens, and each pass proposes at most eight items. Relevant context is selected first. Optional context is trimmed with explicit omission counts; email evidence and carried candidates are not silently truncated. Exact previously quoted blocks may be removed when their original is retained. Signatures and uncertain quoted content are preserved to avoid losing instructions.
 
 The scheduler checks due mailboxes each minute, resumes unfinished batches, and schedules the next completed scan after three hours. Workspace caps remain 10 calls per rolling three hours, 20 per UTC day and the configured monthly allowance (default 300; October's approved exception is 600). Reserved failed calls count. No budget increase or paid scan is part of this change.
 
@@ -54,6 +54,14 @@ No Google Docs, attachments, external links, autonomous outbound messages, invoi
 
 ## Upgrade and validation
 
-Apply migrations in order through `20261010080000_require_task_projects.sql`, then deploy the SOT function and frontend. The migration extracts older embedded project proposals into independent cards and links their pending tasks, preserving originals and marking imported scope as unconfirmed. It does not create official projects or tasks. Existing approved business records and time history are unchanged.
+Apply migrations in order through `20261011000000_sot_scan_sections.sql`, then deploy the SOT function and frontend. The migration extracts older embedded project proposals into independent cards and links their pending tasks, preserving originals and marking imported scope as unconfirmed. It does not create official projects or tasks. Existing approved business records and time history are unchanged.
 
 Run `npm test`, `npm run build`, and a Deno type check. Tests cover standalone approval, role/ownership/stale-state controls, retry safety, independent task approval, source validation, exact dedupe, distinct event scopes, evidence aggregation and preserved review decisions. Automated tests do not establish live model accuracy. Validate a bounded real scan with Sierra when ready; distinguish actual observed results from expected behavior.
+
+## Resumable conversation sections
+
+Each invocation performs at most one reserved AI call. Chronological message fragments are grouped into sections of at most 4 KB before context; serialized requests remain at most 16 KB. Every successful section/pass response is checkpointed in server-only `sot_thread_progress`. Later sections revise the carried provisional candidates; suggestions are published only after all sections and passes complete and citations pass validation. There are at most eight candidates per pass; this remains a bounded review, not exhaustive extraction. Semantic cancellation handling depends on the model and human review.
+
+Mailbox discovery and unfinished threads alternate so a long conversation does not monopolize processing. A thread-level parsing/provider/size error is deferred, its position saved, and the mailbox advances. Deferred threads are retried on a later scan cycle. A pass with deferred threads is labeled follow-up, not full completion; its previous completed watermark is retained. Unchanged legacy cached threads remain skipped rather than being rescanned solely for this upgrade. Model calls successfully checkpointed are not repeated on a normal retry. A process crash between provider response and database checkpoint can still cause a repeated charge; exactly-once provider billing cannot be guaranteed.
+
+The UI shows last attempt, last full completion, conversations checked, the current section, follow-up count and next eligible attempt. Server-only `sot_scan_runs` retains attempt outcomes from this release onward; historical attempts are not fabricated. Spending limits remain 10 per three hours, 20 per UTC day and the configured monthly allowance. No automatic budget increase is made. Full-cycle completion still depends on available allowance and all deferred work resolving.

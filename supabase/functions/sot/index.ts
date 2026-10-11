@@ -1,3 +1,4 @@
+import { sectionMessages, sectionInput, advanceSection, budgetRetryAt, SECTION_RULES } from './sections.ts';
 import { supportedProposal, quoted, duplicateWork, proposalIdentity, canonical } from './truth.ts';
 import { resolveProject } from './projects.ts';
 import { clientChecklist, clientContext, websiteRequest, websiteResult } from './identity.ts';
@@ -34,6 +35,7 @@ async function staff(uid:string) {
 async function token(uid:string) {
  const c=checked(await db.from('sot_credentials').select('encrypted_refresh').eq('user_id',uid).single());
  if(!c) throw new Error('Connect Gmail first.');
+  checked(await db.from('sot_connections').update({last_attempt_at:new Date().toISOString(),scan_status:'running'}).eq('user_id',uid));
  return (await fetchJSON('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({client_id:env('GOOGLE_CLIENT_ID'),client_secret:env('GOOGLE_CLIENT_SECRET'),refresh_token:await crypt(c.encrypted_refresh,true),grant_type:'refresh_token'})})).access_token as string;
 }
 function decode(data:string) {try {return new TextDecoder().decode(unbase64(data.replace(/-/g,'+').replace(/_/g,'/')));}catch{return '';}}
@@ -50,14 +52,21 @@ function body(part:any):string {
 async function scan(uid:string) {
  const lease=crypto.randomUUID();
  if(!checked(await db.rpc('sot_claim_scan',{uid,lease}))) throw new Error('A scan is already running. Wait a moment and refresh.');
+ const runId=crypto.randomUUID();
  try {
+  checked(await db.from('sot_scan_runs').insert({id:runId,user_id:uid}));
   const c=checked(await db.from('sot_connections').select('*').eq('user_id',uid).single());
   if(!c) throw new Error('Connect Gmail first.');
+  checked(await db.from('sot_connections').update({last_attempt_at:new Date().toISOString(),scan_status:'running'}).eq('user_id',uid));
   const access=await token(uid), headers={Authorization:'Bearer '+access};
   const started=c.scan_started_at||new Date().toISOString();
   const q=new URLSearchParams({q:incrementalQuery(c.email,started,c.last_scan_at,c.scan_floor),maxResults:'1'});if(c.scan_cursor) q.set('pageToken',c.scan_cursor);
   if(!c.scan_started_at) checked(await db.from('sot_connections').update({scan_started_at:started,scanned_threads:0,last_error:null}).eq('user_id',uid));
-  const list=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+q,{headers});
+  const queued=(c.scan_listing_done||c.queue_turn)?checked(await db.from('sot_thread_progress').select('thread_id').eq('user_id',uid).eq('status','pending').order('updated_at').limit(1)):[];
+  const fromQueue=!!queued?.length;
+  const list=fromQueue?{threads:[{id:queued![0].thread_id}]}:c.scan_listing_done?{threads:[]}:await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+q,{headers});
+  const listingDone=fromQueue?!!c.scan_listing_done:c.scan_listing_done||!list.nextPageToken;
+  const nextCursor=fromQueue?c.scan_cursor:list.nextPageToken||null;
   const clientRows=checked(await db.from('clients').select('id,name,archived_at').order('created_at').limit(1000))||[];
   const contactRows=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
   const profiles=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').limit(1000))||[];
@@ -68,41 +77,70 @@ async function scan(uid:string) {
   const pending=checked(await db.from('sot_suggestions').select('id,kind,title,description,payload,status,archived_at,source_subject,evidence').eq('user_id',uid).order('updated_at',{ascending:false}).limit(300))||[];
   let made=0;
   for(const ref of list.threads||[]) {
-   const thread=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+encodeURIComponent(ref.id)+'?format=full',{headers});
+   let thread:any;
+   try {thread=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+encodeURIComponent(ref.id)+'?format=full',{headers});}
+   catch(error){
+    const message=error instanceof Error?error.message:'Email could not be read';
+    if(message.includes('access expired'))throw error;
+    // A missing or temporarily unreadable queued thread must not strand all other mail.
+    const old=checked(await db.from('sot_thread_progress').select('*').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
+    checked(await db.from('sot_thread_progress').upsert({...old,user_id:uid,thread_id:ref.id,fingerprint:old?.fingerprint||'',status:'deferred',error:message,updated_at:new Date().toISOString()}));
+    continue;
+   }
    const cutoff=Date.parse(started)-90*86400000;
    const messages=(thread.messages||[]).filter((m:any)=>Number(m.internalDate)>=cutoff && !m.labelIds?.some((l:string)=>['TRASH','SPAM','DRAFT'].includes(l))).map((m:any)=>{
     const h=(name:string)=>m.payload?.headers?.find((h:any)=>h.name.toLowerCase()===name)?.value||'';
-    return {id:m.id,messageId:h('message-id')||m.id,date:new Date(Number(m.internalDate)).toISOString(),from:h('from'),to:h('to'),cc:h('cc'),subject:h('subject'),body:bounded(body(m.payload||{}),9000)};
-   }).filter((m:any)=>agencyRelated(m,c.email)).slice(-12);
-   if(!messages.length) continue;
-   const fingerprint=await hash(JSON.stringify({messages,engine:'truth-v4'}));
+    return {id:m.id,messageId:h('message-id')||m.id,date:new Date(Number(m.internalDate)).toISOString(),from:h('from'),to:h('to'),cc:h('cc'),subject:h('subject'),body:body(m.payload||{})};
+   }).filter((m:any)=>agencyRelated(m,c.email));
+   if(!messages.length) {checked(await db.from('sot_thread_progress').delete().eq('user_id',uid).eq('thread_id',ref.id));continue;}
+   const fingerprint=await hash(JSON.stringify({messages,engine:'sections-v5'}));
    const cached=checked(await db.from('sot_scan_cache').select('fingerprint').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
-   if(cached?.fingerprint===fingerprint) continue;
+   const legacyFingerprint=await hash(JSON.stringify({messages:messages.map((m:any)=>({...m,body:bounded(m.body,9000)})).slice(-12),engine:'truth-v4'}));
+   if(cached?.fingerprint===fingerprint||cached?.fingerprint===legacyFingerprint) {checked(await db.from('sot_thread_progress').delete().eq('user_id',uid).eq('thread_id',ref.id));continue;}
    const contacts=addresses(messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' '));
    // Bound the full request, including context, rather than silently creating an expensive scan.
    const relationship=clientContext(contacts,messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
-   const relevantClients=[...clients].sort((a:any,b:any)=>Number(relationship.candidates.some(c=>c.id===b.id))-Number(relationship.candidates.some(c=>c.id===a.id))).map((c:any)=>({...c,description:bounded(c.description||'',400),services:bounded(c.services||'',400),context_notes:bounded(c.context_notes||'',1600)}));
+   const relevantClients=[...(relationship.candidates.length?clients.filter((x:any)=>relationship.candidates.some(c=>c.id===x.id)):clients)].sort((a:any,b:any)=>Number(relationship.candidates.some(c=>c.id===b.id))-Number(relationship.candidates.some(c=>c.id===a.id))).map((c:any)=>({...c,description:bounded(c.description||'',400),services:bounded(c.services||'',400),context_notes:bounded(c.context_notes||'',1600)}));
    const matched=relationship.matched;
-   if(matched && clients.find((c:any)=>c.id===matched.id)?.archived_at) continue;
+   if(matched && clients.find((c:any)=>c.id===matched.id)?.archived_at) {checked(await db.from('sot_thread_progress').delete().eq('user_id',uid).eq('thread_id',ref.id));continue;}
    const relevantReviews=reviews.filter((r:any)=>contacts.includes(r.contact_email)||r.client_name===matched?.name).slice(0,12);
-   const context={unconfirmed_suggestions:pending.filter((s:any)=>!s.archived_at&&s.status==='pending'&&(!matched||s.payload.client_id===matched.id)).slice(0,20).map((s:any)=>({id:s.id,kind:s.kind,title:s.title,scope:bounded(s.description,400),client_id:s.payload.client_id,project_id:s.payload.project_id,new_project_name:s.payload.new_project_name,evidence:bounded(s.evidence,300),source_subject:s.source_subject})),clients:relevantClients.slice(0,80),projects:projects.filter((p:any)=>matched?p.client_id===matched.id:relationship.candidates.some(c=>c.id===p.client_id)).slice(0,30).map((p:any)=>({...p,description:bounded(p.description||'',500)})),tasks:tasks.filter((t:any)=>!matched||t.client_id===matched.id).slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
-   let selected=messages;
-   const inputMessages=(items:any[])=>items.map(({id,messageId,...rest})=>({...rest,source_message_id:id}));
-   let input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});
-   while(new TextEncoder().encode(input).length>16000 && selected.length>1) {selected=selected.slice(1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
-   if(new TextEncoder().encode(input).length>16000) {context.unconfirmed_suggestions=context.unconfirmed_suggestions.slice(0,8);context.projects=context.projects.map((p:any)=>({...p,description:''}));context.clients=relevantClients.slice(0,30);selected=selected.map((m:any)=>({...m,body:bounded(m.body,8000)}));input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
-   while(new TextEncoder().encode(input).length>16000 && context.clients.length>1) {context.clients=context.clients.slice(0,-1);input=JSON.stringify({today:new Date().toISOString().slice(0,10),context,messages:inputMessages(selected)});}
-   if(new TextEncoder().encode(input).length>16000) throw new Error('A conversation is too large to process safely. Contact the owner.');
-   const passes:('clients'|'tasks')[]=relationship.allowNewClient?['clients','tasks']:['tasks'];
-   if(!checked(await db.rpc('sot_reserve_current_calls',{calls:passes.length}))) throw new Error('SOT reached a spending limit (10 calls per three hours, 20 per UTC day, or the monthly allowance). Progress is saved; automatic checks will retry later.');
-   const proposals:Proposal[]=[];
-   for(const pass of passes) {
-    const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:passInstructions(pass),input,max_output_tokens:2400,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:proposalSchema}}})});
-    if(response.status!=='completed') throw new Error('SOT could not finish reading a conversation. Retry the scan.');
-    const output=response.output?.flatMap((o:any)=>o.content||[]).filter((x:any)=>x.type==='output_text').map((x:any)=>x.text).join('');
-    const found:Proposal[]=JSON.parse(output||'{}').suggestions;
-    if(!Array.isArray(found)||found.length>8) throw new Error('SOT returned an incomplete suggestion. Retry the scan.');
-    proposals.push(...found.filter(p=>pass==='clients'?p.kind==='client':p.kind!=='client'));
+   const context={unconfirmed_suggestions:pending.filter((s:any)=>!s.archived_at&&s.status==='pending'&&(!matched||s.payload.client_id===matched.id)).slice(0,20).map((s:any)=>({id:s.id,kind:s.kind,title:s.title,scope:bounded(s.description,400),client_id:s.payload.client_id,project_id:s.payload.project_id,new_project_name:s.payload.new_project_name,evidence:bounded(s.evidence,300),source_subject:s.source_subject})),clients:relevantClients.slice(0,80),projects:projects.filter((p:any)=>matched?p.client_id===matched.id:relationship.candidates.some(c=>c.id===p.client_id)).slice(0,30).map((p:any)=>({...p,description:bounded(p.description||'',500)})),tasks:tasks.filter((t:any)=>matched?t.client_id===matched.id:relationship.candidates.some(c=>c.id===t.client_id)).slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
+   let passes:('clients'|'tasks')[]=relationship.allowNewClient?['clients','tasks']:['tasks'];
+   let progress=checked(await db.from('sot_thread_progress').select('*').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
+   if(!progress||progress.fingerprint!==fingerprint){
+    progress={user_id:uid,thread_id:ref.id,fingerprint,section_index:0,pass_index:0,candidates:{_passes:passes},status:'pending',error:null};
+    checked(await db.from('sot_thread_progress').upsert(progress));
+   }
+   passes=progress.candidates._passes||passes;
+   const selected=messages;
+   let proposals:Proposal[]=[];
+   try {
+    if(new TextEncoder().encode(JSON.stringify(messages)).length>500000)throw new Error('Very large conversation deferred for review; other emails will continue.');
+    const sections=sectionMessages(messages);
+    const section=progress.section_index,passIndex=progress.pass_index;
+    if(section<sections.length){
+     const pass=passes[passIndex];
+     const input=sectionInput(context,sections[section],progress.candidates[pass]||[],section,sections.length,new Date().toISOString().slice(0,10));
+     if(!checked(await db.rpc('sot_reserve_current_calls',{calls:1})))throw new Error('SOT reached a spending limit. Section progress is saved; automatic checks will retry later.');
+     const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:passInstructions(pass)+'\n'+SECTION_RULES,input,max_output_tokens:2400,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:proposalSchema}}})});
+     if(response.status!=='completed')throw new Error('AI response incomplete; this conversation is deferred for another attempt.');
+     const output=response.output?.flatMap((o:any)=>o.content||[]).filter((x:any)=>x.type==='output_text').map((x:any)=>x.text).join('');
+     const found:Proposal[]=JSON.parse(output||'{}').suggestions;
+     if(!Array.isArray(found)||found.length>8)throw new Error('Incomplete suggestions; conversation deferred for review.');
+     progress=advanceSection(progress,pass,found.filter(p=>pass==='clients'?p.kind==='client':p.kind!=='client'),passes.length);
+     // Checkpoint each paid response before moving to another section or pass.
+     checked(await db.from('sot_thread_progress').upsert({...progress,status:'pending',error:null,updated_at:new Date().toISOString()}));
+     if(progress.section_index<sections.length){
+      checked(await db.from('sot_connections').update({scan_cursor:nextCursor,scan_listing_done:listingDone,queue_turn:!fromQueue,section_progress:`Conversation section ${progress.section_index+1} of ${sections.length}`,next_scan_at:new Date(Date.now()+60000).toISOString(),last_error:null}).eq('user_id',uid));
+      return {more:true,created:0};
+     }
+    }
+    proposals=passes.flatMap(pass=>progress.candidates[pass]||[]);
+   }catch(error){
+    const message=error instanceof Error?error.message:'Conversation deferred';
+    if(message.includes('spending limit')||message.includes('save its progress'))throw error;
+    checked(await db.from('sot_thread_progress').update({status:'deferred',error:message,updated_at:new Date().toISOString()}).eq('user_id',uid).eq('thread_id',ref.id));
+    continue; // Do not strand the mailbox on one malformed or unprocessable thread.
    }
    const rows:any[]=[];
    for(const p of proposals) {
@@ -138,17 +176,30 @@ async function scan(uid:string) {
     rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,project_proposal_key:projectKey,possible_duplicate_id:duplicate?.id||null,uncertainty:[p.uncertainty,duplicate?'Possible duplicate: compare the existing work before adding.':''].filter(Boolean).join(' '),analysis_version:4,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
    }
    checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:rows}));
+   checked(await db.from('sot_thread_progress').delete().eq('user_id',uid).eq('thread_id',ref.id));
    made+=rows.length;
   }
-  const more=!!list.nextPageToken;
-  checked(await db.from('sot_connections').update({scan_cursor:list.nextPageToken||null,scan_started_at:more?started:null,last_scan_at:more?c.last_scan_at:started,last_error:null,next_scan_at:new Date(Date.now()+(more?60000:3*3600000)).toISOString(),scanned_threads:(c.scan_started_at?c.scanned_threads:0)+(list.threads||[]).length}).eq('user_id',uid));
-  return {more,created:made};
+  const deferred=checked(await db.from('sot_thread_progress').select('thread_id').eq('user_id',uid).eq('status','deferred'))||[];
+  const waiting=checked(await db.from('sot_thread_progress').select('thread_id').eq('user_id',uid).eq('status','pending'))||[];
+  const more=!listingDone||waiting.length>0;
+  checked(await db.from('sot_connections').update({scan_cursor:nextCursor,scan_listing_done:more?listingDone:false,queue_turn:!fromQueue,scan_started_at:more?started:null,last_scan_at:more||deferred.length?c.last_scan_at:started,last_completed_at:more||deferred.length?c.last_completed_at:new Date().toISOString(),last_error:deferred.length?`${deferred.length} conversation(s) need follow-up; other emails can continue.`:null,scan_status:more?'running':deferred.length?'follow_up':'complete',section_progress:null,deferred_threads:deferred.length,next_scan_at:new Date(Date.now()+(more?60000:3*3600000)).toISOString(),scanned_threads:(c.scan_started_at?c.scanned_threads:0)+(list.threads||[]).length}).eq('user_id',uid));
+  return {more,created:made,deferred:deferred.length};
  } catch(error) {
   const message=error instanceof Error?error.message:'Scan interrupted';
-  const next=message.includes('monthly scan allowance')?new Date(Date.UTC(new Date().getUTCFullYear(),new Date().getUTCMonth()+1,1)):new Date(Date.now()+3*3600000);
-  await db.from('sot_connections').update({last_error:message,next_scan_at:next.toISOString()}).eq('user_id',uid);
+  let next=new Date(Date.now()+3*3600000);
+  if(message.includes('spending limit')){
+   const now=Date.now();const month=new Date(now).toISOString().slice(0,7);
+   const usage=await db.from('sot_usage').select('reserved_calls,analysis_limit').eq('month',month).maybeSingle();
+   const reservations=await db.from('sot_call_reservations').select('reserved_at,calls').gte('reserved_at',new Date(now-86400000).toISOString());
+   if(usage.data&&reservations.data)next=new Date(budgetRetryAt(now,usage.data,reservations.data));
+  }
+  await db.from('sot_connections').update({last_error:message,scan_status:message.includes('spending limit')?'budget_paused':'error',next_scan_at:next.toISOString()}).eq('user_id',uid);
   throw error;
- } finally {await db.from('sot_scan_locks').delete().eq('user_id',uid).eq('lease_id',lease);}
+ } finally {
+  const snapshot=await db.from('sot_connections').select('scan_status,last_error,section_progress,scanned_threads').eq('user_id',uid).maybeSingle();
+  await db.from('sot_scan_runs').update({finished_at:new Date().toISOString(),status:snapshot.data?.scan_status||'error',detail:snapshot.data?.last_error||snapshot.data?.section_progress||null,scanned_threads:snapshot.data?.scanned_threads||0}).eq('id',runId);
+  await db.from('sot_scan_locks').delete().eq('user_id',uid).eq('lease_id',lease);
+ }
 }
 Deno.serve(async req=>{
  const url=new URL(req.url);
