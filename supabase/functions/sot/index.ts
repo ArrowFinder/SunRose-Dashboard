@@ -2,7 +2,7 @@ import {createTeammate} from './team.ts';
 import { allPages, relevantWork } from './context.ts';
 import { cleanMessages, byteSize } from './sections.ts';
 import { pacificHour, tokenCost } from './batches.ts';
-import {conversationPacket,restoreSourceIds,CONVERSATION_RULES} from './conversations.ts';
+import {conversationPacket,restoreSourceIds,hasQueuedMessages,CONVERSATION_RULES} from './conversations.ts';
 import {validateBatchThread} from './validation.ts';
 import { clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
@@ -145,7 +145,9 @@ async function scan(uid:string,manual=false) {
    collecting=!!list.nextPageToken;
    checked(await db.from('sot_connections').update({collection_started:collecting?started:null,collection_cursor:list.nextPageToken||null,collected_through:collecting?c.collected_through:started}).eq('user_id',uid));
    checked(await db.from('sot_mail_queue').update({status:'ready',reason:null}).eq('user_id',uid).eq('status','review').in('reason',['Select a smaller group of messages to retry, or review in Gmail and resolve manually.','Too much new text for automatic review. Open the conversation in Gmail to identify focused work.','Context and message exceed the safe batch size; focused review needed.']));
-   const queued:any[]=await allPages((a,b)=>db.from('sot_mail_queue').select('*').eq('user_id',uid).eq('status','ready').order('thread_id').range(a,b));
+   const collectedQueue:any[]=await allPages((a,b)=>db.from('sot_mail_queue').select('*').eq('user_id',uid).eq('status','ready').order('thread_id').range(a,b));
+   const queued=collectedQueue.filter(hasQueuedMessages);
+   for(const empty of collectedQueue.filter(t=>!hasQueuedMessages(t)))checked(await db.from('sot_mail_queue').update({status:'review',reason:'Queued content is missing; retrieve this conversation again.'}).eq('user_id',uid).eq('thread_id',empty.thread_id));
    queued.sort((a,b)=>Math.max(...b.payload.messages.map((m:any)=>Date.parse(m.date)))-Math.max(...a.payload.messages.map((m:any)=>Date.parse(m.date))));
    const ready=queued.map(t=>({...t,payload:{...t.payload,messages:t.focus_message_ids?t.payload.messages.filter((m:any)=>t.focus_message_ids.includes(m.id)):t.payload.messages}}));
    // Finish a checkpointed conversation, otherwise prioritize recent mail.
