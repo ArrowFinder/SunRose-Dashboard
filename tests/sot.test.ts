@@ -192,7 +192,7 @@ test('reassessment queues only own pending conversations, preserves decisions an
  assert.equal((await db.query('select auto_scan from public.sot_connections where user_id=$1',[ids[3]])).rows[0].auto_scan,false);
 });
 test('analysis pair cannot exceed the existing monthly budget',async()=>{
- await db.query("update public.sot_usage set reserved_calls=299 where month=to_char(now() at time zone 'UTC','YYYY-MM')");
+ await db.query("update public.sot_usage set reserved_calls=analysis_limit-1 where month=to_char(now() at time zone 'UTC','YYYY-MM')");
  assert.equal((await db.query('select public.sot_reserve_analysis_pair() as ok')).rows[0].ok,false);
  await assert.rejects(as(ids[3],'select public.sot_reserve_analysis_pair()'),/permission denied/);
 });

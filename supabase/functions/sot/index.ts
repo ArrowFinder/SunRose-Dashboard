@@ -1,9 +1,10 @@
-import { freshMessages, sectionMessages, sectionInput, advanceSection, budgetRetryAt, SECTION_RULES } from './sections.ts';
+import { cleanMessages, byteSize } from './sections.ts';
+import { packRelated, pacificHour, tokenCost, BATCH_RULES } from './batches.ts';
 import { supportedProposal, quoted, duplicateWork, proposalIdentity, canonical } from './truth.ts';
 import { resolveProject } from './projects.ts';
 import { clientChecklist, clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
-import { addresses, agencyRelated, bounded, incrementalQuery, passInstructions, proposalSchema, STAFF_ROLES, STARTING_MAILBOX, validProposal, type Proposal } from './core.ts';
+import { addresses, agencyRelated, bounded, incrementalQuery, instructions, proposalSchema, STAFF_ROLES, STARTING_MAILBOX, validProposal, type Proposal } from './core.ts';
 const env = (name: string) => Deno.env.get(name) || '';
 const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), {auth:{persistSession:false,autoRefreshToken:false}});
 const app = env('SOT_APP_URL') || 'https://arrowfinder.github.io/SunRose-Dashboard/';
@@ -35,7 +36,6 @@ async function staff(uid:string) {
 async function token(uid:string) {
  const c=checked(await db.from('sot_credentials').select('encrypted_refresh').eq('user_id',uid).single());
  if(!c) throw new Error('Connect Gmail first.');
-  checked(await db.from('sot_connections').update({last_attempt_at:new Date().toISOString(),scan_status:'running'}).eq('user_id',uid));
  return (await fetchJSON('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({client_id:env('GOOGLE_CLIENT_ID'),client_secret:env('GOOGLE_CLIENT_SECRET'),refresh_token:await crypt(c.encrypted_refresh,true),grant_type:'refresh_token'})})).access_token as string;
 }
 function decode(data:string) {try {return new TextDecoder().decode(unbase64(data.replace(/-/g,'+').replace(/_/g,'/')));}catch{return '';}}
@@ -49,104 +49,8 @@ function body(part:any):string {
  if(parts.length) return parts.map(body).join('\n');
  return part.mimeType==='text/html'?decode(part.body?.data||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<br\s*\/?\s*>|<\/(?:p|div|li|tr)>/gi,'\n').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' '):'';
 }
-async function scan(uid:string) {
- const lease=crypto.randomUUID();
- if(!checked(await db.rpc('sot_claim_scan',{uid,lease}))) throw new Error('A scan is already running. Wait a moment and refresh.');
- const runId=crypto.randomUUID();
- try {
-  checked(await db.from('sot_scan_runs').insert({id:runId,user_id:uid}));
-  const c=checked(await db.from('sot_connections').select('*').eq('user_id',uid).single());
-  if(!c) throw new Error('Connect Gmail first.');
-  checked(await db.from('sot_connections').update({last_attempt_at:new Date().toISOString(),scan_status:'running'}).eq('user_id',uid));
-  const access=await token(uid), headers={Authorization:'Bearer '+access};
-  const started=c.scan_started_at||new Date().toISOString();
-  const q=new URLSearchParams({q:incrementalQuery(c.email,started,c.last_scan_at,c.scan_floor),maxResults:'1'});if(c.scan_cursor) q.set('pageToken',c.scan_cursor);
-  if(!c.scan_started_at) checked(await db.from('sot_connections').update({scan_started_at:started,scanned_threads:0,last_error:null}).eq('user_id',uid));
-  const queued=(c.scan_listing_done||c.queue_turn)?checked(await db.from('sot_thread_progress').select('thread_id').eq('user_id',uid).eq('status','pending').order('updated_at').limit(1)):[];
-  const fromQueue=!!queued?.length;
-  const list=fromQueue?{threads:[{id:queued![0].thread_id}]}:c.scan_listing_done?{threads:[]}:await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+q,{headers});
-  const listingDone=fromQueue?!!c.scan_listing_done:c.scan_listing_done||!list.nextPageToken;
-  const nextCursor=fromQueue?c.scan_cursor:list.nextPageToken||null;
-  const clientRows=checked(await db.from('clients').select('id,name,archived_at').order('created_at').limit(1000))||[];
-  const contactRows=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
-  const profiles=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').limit(1000))||[];
-  const clients=clientRows.map((c:any)=>({...c,...profiles.find((p:any)=>p.client_id===c.id),emails:contactRows.filter((r:any)=>r.client_id===c.id).map((r:any)=>r.email)}));
-  const tasks=checked(await db.from('work_items').select('id,client_id,project_id,parent_id,title,status,due_date,updated_at,archived_at').order('updated_at',{ascending:false}).limit(300))||[];
-  const projects=checked(await db.from('projects').select('id,client_id,name,description,stage').order('updated_at',{ascending:false}).limit(1000))||[];
-  const reviews=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
-  const pending=checked(await db.from('sot_suggestions').select('id,kind,title,description,payload,status,archived_at,source_subject,evidence').eq('user_id',uid).order('updated_at',{ascending:false}).limit(300))||[];
-  let made=0;
-  for(const ref of list.threads||[]) {
-   let thread:any;
-   try {thread=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+encodeURIComponent(ref.id)+'?format=full',{headers});}
-   catch(error){
-    const message=error instanceof Error?error.message:'Email could not be read';
-    if(message.includes('access expired'))throw error;
-    // A missing or temporarily unreadable queued thread must not strand all other mail.
-    const old=checked(await db.from('sot_thread_progress').select('*').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
-    checked(await db.from('sot_thread_progress').upsert({...old,user_id:uid,thread_id:ref.id,fingerprint:old?.fingerprint||'',status:'deferred',error:message,updated_at:new Date().toISOString()}));
-    continue;
-   }
-   const cutoff=Date.parse(started)-90*86400000;
-   const messages=(thread.messages||[]).filter((m:any)=>Number(m.internalDate)>=cutoff && !m.labelIds?.some((l:string)=>['TRASH','SPAM','DRAFT'].includes(l))).map((m:any)=>{
-    const h=(name:string)=>m.payload?.headers?.find((h:any)=>h.name.toLowerCase()===name)?.value||'';
-    return {id:m.id,messageId:h('message-id')||m.id,date:new Date(Number(m.internalDate)).toISOString(),from:h('from'),to:h('to'),cc:h('cc'),subject:h('subject'),body:body(m.payload||{})};
-   }).filter((m:any)=>agencyRelated(m,c.email));
-   if(!messages.length) {checked(await db.from('sot_thread_progress').delete().eq('user_id',uid).eq('thread_id',ref.id));continue;}
-   const fingerprint=await hash(JSON.stringify({messages,engine:'sections-v5'}));
-   const cached=checked(await db.from('sot_scan_cache').select('fingerprint').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
-   const legacyFingerprint=await hash(JSON.stringify({messages:messages.map((m:any)=>({...m,body:bounded(m.body,9000)})).slice(-12),engine:'truth-v4'}));
-   if(cached?.fingerprint===fingerprint||cached?.fingerprint===legacyFingerprint) continue;
-   const contacts=addresses(messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' '));
-   // Bound the full request, including context, rather than silently creating an expensive scan.
-   const relationship=clientContext(contacts,messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
-   const relevantClients=[...(relationship.candidates.length?clients.filter((x:any)=>relationship.candidates.some(c=>c.id===x.id)):clients)].sort((a:any,b:any)=>Number(relationship.candidates.some(c=>c.id===b.id))-Number(relationship.candidates.some(c=>c.id===a.id))).map((c:any)=>({...c,description:bounded(c.description||'',400),services:bounded(c.services||'',400),context_notes:bounded(c.context_notes||'',1600)}));
-   const matched=relationship.matched;
-   if(matched && clients.find((c:any)=>c.id===matched.id)?.archived_at) {checked(await db.from('sot_thread_progress').delete().eq('user_id',uid).eq('thread_id',ref.id));continue;}
-   const relevantReviews=reviews.filter((r:any)=>contacts.includes(r.contact_email)||r.client_name===matched?.name).slice(0,12);
-   const context={unconfirmed_suggestions:pending.filter((s:any)=>!s.archived_at&&s.status==='pending'&&(!matched||s.payload.client_id===matched.id)).slice(0,20).map((s:any)=>({id:s.id,kind:s.kind,title:s.title,scope:bounded(s.description,400),client_id:s.payload.client_id,project_id:s.payload.project_id,new_project_name:s.payload.new_project_name,evidence:bounded(s.evidence,300),source_subject:s.source_subject})),clients:relevantClients.slice(0,80),projects:projects.filter((p:any)=>matched?p.client_id===matched.id:relationship.candidates.some(c=>c.id===p.client_id)).slice(0,30).map((p:any)=>({...p,description:bounded(p.description||'',500)})),tasks:tasks.filter((t:any)=>matched?t.client_id===matched.id:relationship.candidates.some(c=>c.id===t.client_id)).slice(0,60),review_history:relevantReviews,matched_client:matched?.id||null,client_candidates:relationship.candidates.map(c=>c.id),allow_new_client:relationship.allowNewClient,current_window:{after:c.last_scan_at?new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.last_scan_at)-86400000)).toISOString():c.scan_floor,before:started},mailbox:c.email};
-   let passes:('clients'|'tasks')[]=relationship.allowNewClient?['clients','tasks']:['tasks'];
-   let progress=checked(await db.from('sot_thread_progress').select('*').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
-   const after=new Date(Math.max(Date.parse(context.current_window.after),Date.parse(started)-7*86400000)).toISOString();
-   const selected=freshMessages(messages,progress?.candidates?._processed||[],after,started);
-   if(!selected.length){checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:[]}));continue;}
-   if(!progress||progress.fingerprint!==fingerprint||progress.candidates._engine!=='fresh-v1'){
-    progress={user_id:uid,thread_id:ref.id,fingerprint,section_index:0,pass_index:0,candidates:{_passes:passes,_engine:'fresh-v1',_processed:progress?.candidates?._processed||[]},status:'pending',error:null};
-    checked(await db.from('sot_thread_progress').upsert(progress));
-   }
-   passes=progress.candidates._passes||passes;
-
-   let proposals:Proposal[]=[];
-   try {
-    if(new TextEncoder().encode(JSON.stringify(selected)).length>500000)throw new Error('Very large conversation deferred for review; other emails will continue.');
-    const sections=sectionMessages(selected);
-    if(sections.length>4)throw new Error('Conversation needs focused review: more than four sections of new content. Deferred without spending AI calls so other emails can continue.');
-    const section=progress.section_index,passIndex=progress.pass_index;
-    if(section<sections.length){
-     const pass=passes[passIndex];
-     const priorMessage=messages.filter((m:any)=>Date.parse(m.date)<Date.parse(selected[0].date)).at(-1);
-     const input=sectionInput({...context,older_context:priorMessage?{subject:priorMessage.subject,body:bounded(priorMessage.body,2000),context_only:true}:null},sections[section],progress.candidates[pass]||[],section,sections.length,new Date().toISOString().slice(0,10));
-     if(!checked(await db.rpc('sot_reserve_current_calls',{calls:1})))throw new Error('SOT reached a spending limit. Section progress is saved; automatic checks will retry later.');
-     const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:passInstructions(pass)+'\n'+SECTION_RULES,input,max_output_tokens:2400,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:proposalSchema}}})});
-     if(response.status!=='completed')throw new Error('AI response incomplete; this conversation is deferred for another attempt.');
-     const output=response.output?.flatMap((o:any)=>o.content||[]).filter((x:any)=>x.type==='output_text').map((x:any)=>x.text).join('');
-     const found:Proposal[]=JSON.parse(output||'{}').suggestions;
-     if(!Array.isArray(found)||found.length>8)throw new Error('Incomplete suggestions; conversation deferred for review.');
-     progress=advanceSection(progress,pass,found.filter(p=>pass==='clients'?p.kind==='client':p.kind!=='client'),passes.length);
-     // Checkpoint each paid response before moving to another section or pass.
-     checked(await db.from('sot_thread_progress').upsert({...progress,status:'pending',error:null,updated_at:new Date().toISOString()}));
-     if(progress.section_index<sections.length){
-      checked(await db.from('sot_connections').update({scan_cursor:nextCursor,scan_listing_done:listingDone,queue_turn:!fromQueue,section_progress:`Conversation section ${progress.section_index+1} of ${sections.length}`,next_scan_at:new Date(Date.now()+60000).toISOString(),last_error:null}).eq('user_id',uid));
-      return {more:true,created:0};
-     }
-    }
-    proposals=passes.flatMap(pass=>progress.candidates[pass]||[]);
-   }catch(error){
-    const message=error instanceof Error?error.message:'Conversation deferred';
-    if(message.includes('spending limit')||message.includes('save its progress'))throw error;
-    checked(await db.from('sot_thread_progress').update({status:'deferred',error:message,updated_at:new Date().toISOString()}).eq('user_id',uid).eq('thread_id',ref.id));
-    continue; // Do not strand the mailbox on one malformed or unprocessable thread.
-   }
+async function validateBatchThread(proposals:Proposal[],selected:any[],context:any,relationship:any,clients:any[],tasks:any[],pending:any[]){
+ const contacts=addresses(selected.map(m=>m.from+" "+m.to+" "+m.cc).join(" "));const matched=relationship.matched;
    const rows:any[]=[];
    for(const p of proposals) {
     if(!validProposal(p,selected.map((m:any)=>m.id),contacts)) continue;
@@ -154,6 +58,7 @@ async function scan(uid:string) {
     if(p.kind!=='client'&&matched) {p.client_id=matched.id;p.client_name=matched.name;}
     if(!['client','project'].includes(p.kind) && p.responsibility!=='sunrose') continue;
     if(p.kind==='client') {p.parent_id=null;p.task_id=null;p.due_date=null;p.estimated_hours=null;}
+    if(p.client_id && relationship.candidates.length && !relationship.candidates.some((x:any)=>x.id===p.client_id))continue;
     if(p.client_id && !clients.some((x:any)=>x.id===p.client_id&&!x.archived_at)) continue;
     const target=p.task_id?tasks.find((t:any)=>t.id===p.task_id):null;
     if(['update','complete'].includes(p.kind) && (!target || target.archived_at || target.client_id!==p.client_id || tasks.some((t:any)=>t.parent_id===target.id))) continue;
@@ -163,12 +68,12 @@ async function scan(uid:string) {
     if(p.due_date&&!quoted(p.due_evidence,source.body))p.due_date=null;
     if(p.estimated_hours!==null&&!quoted(p.estimate_evidence,source.body))p.estimated_hours=null;
     if(p.kind==='project'){p.parent_id=null;p.task_id=null;p.due_date=null;p.estimated_hours=null;p.new_project_name=p.title;p.project_id=null;if(p.title.length>160)continue;}
-    if(Date.parse(source.date)<Date.parse(context.current_window.after)||Date.parse(source.date)>=Date.parse(started)) continue;
+
 
     const checklist=clientChecklist(p,clients,source.body);
     if(p.kind==='client'&&!checklist.ready) continue;
     if(p.kind!=='client'&&matched) {checklist.identity_resolved=true;checklist.matched_client_id=matched.id;}
-    if(p.kind!=='client'&&relationship.candidates.length>1) {checklist.ready=false;checklist.identity_resolved=false;checklist.possible_matches=relationship.candidates.map(c=>c.id);checklist.explanation='Multiple existing clients appear in this conversation. Confirm which client owns this work.';}
+    if(p.kind!=='client'&&relationship.candidates.length>1) {checklist.ready=false;checklist.identity_resolved=false;checklist.possible_matches=relationship.candidates.map((c:any)=>c.id);checklist.explanation='Multiple existing clients appear in this conversation. Confirm which client owns this work.';}
     if(!p.client_id && checklist.matched_client_id && checklist.identity_resolved) p.client_id=checklist.matched_client_id;
     if(p.kind==='client'&&checklist.matched_client_id&&checklist.identity_resolved) continue;
     const project=resolveProject(p,context.projects,tasks,source.body);
@@ -180,32 +85,144 @@ async function scan(uid:string) {
     const projectKey=p.new_project_name&&p.client_id?'project:'+p.client_id+':'+canonical(p.new_project_name):null;
     rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,project_proposal_key:projectKey,possible_duplicate_id:duplicate?.id||null,uncertainty:[p.uncertainty,duplicate?'Possible duplicate: compare the existing work before adding.':''].filter(Boolean).join(' '),analysis_version:4,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
    }
-   checked(await db.rpc('sot_store_thread',{uid,thread:ref.id,fingerprint_value:fingerprint,proposals:rows}));
-   checked(await db.from('sot_thread_progress').upsert({...progress,status:'complete',candidates:{_engine:'fresh-v1',_processed:[...new Set([...(progress.candidates._processed||[]),...selected.map((m:any)=>m.id)])]},updated_at:new Date().toISOString()}));
-   made+=rows.length;
+
+ return rows;
+}
+
+async function scan(uid:string,manual=false) {
+ const lease=crypto.randomUUID();
+ if(!checked(await db.rpc('sot_claim_scan',{uid,lease})))throw new Error('A scan is already running. Wait a moment and refresh.');
+ const runId=crypto.randomUUID();let made=0;
+ try {
+  const budget=()=>db.rpc('sot_budget',{manual}).then(checked);
+  let allowance:any=await budget();
+  if(!manual&&pacificHour(new Date())<6){checked(await db.from('sot_connections').update({next_scan_at:allowance.next_check,scan_status:'scheduled'}).eq('user_id',uid));return {more:false,created:0};}
+  checked(await db.from('sot_scan_runs').insert({id:runId,user_id:uid}));
+  const c:any=checked(await db.from('sot_connections').select('*').eq('user_id',uid).single());
+  checked(await db.from('sot_connections').update({last_attempt_at:new Date().toISOString(),scan_status:'running',section_progress:null}).eq('user_id',uid));
+  // A saved answer is replayed without another AI request. A lost response is never silently charged again.
+  let job:any=checked(await db.from('sot_batch_jobs').select('*').eq('user_id',uid).in('status',['prepared','reserved','answered']).order('created_at').limit(1).maybeSingle());
+  if(job?.status==='reserved'){
+   for(const t of job.snapshot.threads)checked(await db.from('sot_mail_queue').update({status:'review',reason:'An AI request was interrupted. Review is needed before retrying to avoid duplicate charges.'}).eq('user_id',uid).eq('thread_id',t.thread_id));
+   checked(await db.from('sot_batch_jobs').update({status:'review',reason:'Response not saved',finished_at:new Date().toISOString()}).eq('id',job.id));job=null;
   }
-  const deferred=checked(await db.from('sot_thread_progress').select('thread_id').eq('user_id',uid).eq('status','deferred'))||[];
-  const waiting=checked(await db.from('sot_thread_progress').select('thread_id').eq('user_id',uid).eq('status','pending'))||[];
-  const more=!listingDone||waiting.length>0;
-  checked(await db.from('sot_connections').update({scan_cursor:nextCursor,scan_listing_done:more?listingDone:false,queue_turn:!fromQueue,scan_started_at:more?started:null,last_scan_at:more||deferred.length?c.last_scan_at:started,last_completed_at:more||deferred.length?c.last_completed_at:new Date().toISOString(),last_error:deferred.length?`${deferred.length} conversation(s) need follow-up; other emails can continue.`:null,scan_status:more?'running':deferred.length?'follow_up':'complete',section_progress:null,deferred_threads:deferred.length,next_scan_at:new Date(Date.now()+(more?60000:3*3600000)).toISOString(),scanned_threads:(c.scan_started_at?c.scanned_threads:0)+(list.threads||[]).length}).eq('user_id',uid));
-  return {more,created:made,deferred:deferred.length};
- } catch(error) {
-  const message=error instanceof Error?error.message:'Scan interrupted';
-  let next=new Date(Date.now()+3*3600000);
-  if(message.includes('spending limit')){
-   const now=Date.now();const month=new Date(now).toISOString().slice(0,7);
-   const usage=await db.from('sot_usage').select('reserved_calls,analysis_limit').eq('month',month).maybeSingle();
-   const reservations=await db.from('sot_call_reservations').select('reserved_at,calls').gte('reserved_at',new Date(now-86400000).toISOString());
-   if(usage.data&&reservations.data)next=new Date(budgetRetryAt(now,usage.data,reservations.data));
+  const clientRows:any[]=checked(await db.from('clients').select('id,name,archived_at').order('created_at').limit(1000))||[];
+  const contactRows:any[]=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
+  const profiles:any[]=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').limit(1000))||[];
+  const clients=clientRows.map(c=>({...c,...profiles.find(p=>p.client_id===c.id),emails:contactRows.filter(r=>r.client_id===c.id).map(r=>r.email)}));
+  const tasks:any[]=checked(await db.from('work_items').select('id,client_id,project_id,parent_id,title,status,due_date,updated_at,archived_at').order('updated_at',{ascending:false}).limit(300))||[];
+  const projects:any[]=checked(await db.from('projects').select('id,client_id,name,description,stage').order('updated_at',{ascending:false}).limit(1000))||[];
+  const reviews:any[]=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
+  const pending:any[]=checked(await db.from('sot_suggestions').select('id,kind,title,description,payload,status,archived_at,source_subject,evidence').eq('user_id',uid).order('updated_at',{ascending:false}).limit(300))||[];
+  const relationshipFor=(t:any)=>clientContext(addresses(t.payload.messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' ')),t.payload.messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
+  const contextFor=(t:any)=>{
+   const rel=relationshipFor(t),ids=rel.candidates.map(x=>x.id);
+   return {mailbox:c.email,allow_new_client:rel.allowNewClient,matched_client:rel.matched?.id||null,client_candidates:ids,
+    clients:(ids.length?clients.filter(x=>ids.includes(x.id)):clients).slice(0,80).map(x=>({...x,description:bounded(x.description||'',400),services:bounded(x.services||'',400),context_notes:bounded(x.context_notes||'',1200)})),
+    projects:projects.filter(x=>ids.includes(x.client_id)).slice(0,30).map(x=>({...x,description:bounded(x.description||'',400)})),
+    tasks:tasks.filter(x=>ids.includes(x.client_id)).slice(0,60),
+    unconfirmed_suggestions:pending.filter(x=>ids.includes(x.payload.client_id)).slice(0,20).map(x=>({id:x.id,kind:x.kind,status:x.status,title:x.title,client_id:x.payload.client_id,project_id:x.payload.project_id})),
+    review_history:reviews.filter(x=>x.client_name===rel.matched?.name).slice(0,12)};
+  };
+  let collecting=!!c.collection_cursor;
+  if(!job){
+   const access=await token(uid),headers={Authorization:'Bearer '+access};
+   const stale=c.collection_started&&Date.now()-Date.parse(c.collection_started)>3*3600000;
+   const started=!stale&&c.collection_started?c.collection_started:new Date().toISOString();
+   const floor=new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.collected_through||started)-7*86400000)).toISOString();
+   const query=new URLSearchParams({q:incrementalQuery(c.email,started,c.collected_through,floor),maxResults:'5'});
+   if(c.collection_cursor&&!stale)query.set('pageToken',c.collection_cursor);
+   const list=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+query,{headers});
+   // Bound collection work per invocation. Its cursor never depends on completing AI work.
+   for(const ref of list.threads||[]){
+    let thread:any;
+    try {thread=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+encodeURIComponent(ref.id)+'?format=full',{headers});}
+    catch {checked(await db.from('sot_mail_queue').upsert({user_id:uid,thread_id:ref.id,fingerprint:'unread',payload:{},status:'review',reason:'Email could not be retrieved; reconnect or review in Gmail.',oldest_at:started}));continue;}
+    const raw=(thread.messages||[]).filter((m:any)=>Number(m.internalDate)>=Date.parse(started)-90*86400000&&Number(m.internalDate)<Date.parse(started)&&!m.labelIds?.some((l:string)=>['TRASH','SPAM','DRAFT'].includes(l))).map((m:any)=>{
+     const h=(n:string)=>m.payload?.headers?.find((x:any)=>x.name.toLowerCase()===n)?.value||'';
+     return {id:m.id,messageId:h('message-id')||m.id,date:new Date(Number(m.internalDate)).toISOString(),from:h('from'),to:h('to'),cc:h('cc'),subject:h('subject'),body:body(m.payload||{})};
+    }).filter((m:any)=>agencyRelated(m,c.email));
+    if(!raw.length)continue;
+    const fingerprint=await hash(JSON.stringify({messages:raw,engine:'sections-v5'}));
+    const cache:any=checked(await db.from('sot_scan_cache').select('fingerprint').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
+    const legacy=await hash(JSON.stringify({messages:raw.map((m:any)=>({...m,body:bounded(m.body,9000)})).slice(-12),engine:'truth-v4'}));
+    if(cache?.fingerprint===fingerprint||cache?.fingerprint===legacy){
+     const known=cache?.fingerprint===fingerprint?raw:raw.slice(-12);
+     checked(await db.from('sot_message_receipts').upsert(known.map((m:any)=>({user_id:uid,message_id:m.id})),{onConflict:'user_id,message_id',ignoreDuplicates:true}));continue;
+    }
+    const old:any=checked(await db.from('sot_mail_queue').select('fingerprint,status,payload,oldest_at').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
+    if(old?.fingerprint===fingerprint)continue;
+    const receipts:any[]=checked(await db.from('sot_message_receipts').select('message_id').eq('user_id',uid).in('message_id',raw.map((m:any)=>m.id)))||[];
+    const seen=new Set(receipts.map(r=>r.message_id));
+    // Collection watermark is deliberately separate from analysis receipts. Queued mail never expires out of review.
+    let after=c.collected_through?Math.max(Date.parse(floor),Date.parse(c.collected_through)-86400000):Math.max(Date.parse(floor),Date.parse(started)-7*86400000);
+    if(old?.status==='review')after=Math.min(after,Date.parse(old.oldest_at));
+    const cleaned=cleanMessages(raw);
+    let messages=cleaned.filter((m:any)=>!seen.has(m.id)&&Date.parse(m.date)>=after&&Date.parse(m.date)<Date.parse(started));
+    messages=[...new Map([...(old?.status==='ready'?old.payload.messages||[]:[]),...messages].filter((m:any)=>!seen.has(m.id)).map((m:any)=>[m.id,m])).values()].sort((a:any,b:any)=>a.date.localeCompare(b.date));
+    if(!messages.length)continue;
+    const older=cleaned.filter((m:any)=>Date.parse(m.date)<Date.parse(messages[0].date)).at(-1);
+    const payload={messages,older_context:older?{subject:older.subject,body:bounded(older.body,1500),context_only:true}:null};
+    const large=byteSize(payload)>10000;
+    checked(await db.from('sot_mail_queue').upsert({user_id:uid,thread_id:ref.id,fingerprint,payload:large?{subject:messages[0].subject}:payload,status:large?'review':'ready',reason:large?'Too much new text for automatic review. Open the conversation in Gmail to identify focused work.':null,oldest_at:messages[0].date,updated_at:new Date().toISOString()}));
+   }
+   collecting=!!list.nextPageToken;
+   checked(await db.from('sot_connections').update({collection_started:collecting?started:null,collection_cursor:list.nextPageToken||null,collected_through:collecting?c.collected_through:started}).eq('user_id',uid));
+   const queued:any[]=checked(await db.from('sot_mail_queue').select('*').eq('user_id',uid).eq('status','ready').order('oldest_at').limit(40))||[];
+   // Never batch different clients or ambiguous identities together. FIFO prevents old ready work from starving.
+   const ready=queued.map(t=>({...t,group:relationshipFor(t).matched?.id||'thread:'+t.thread_id}));
+   const packed=packRelated(ready,contextFor);
+   if(packed?.oversized)checked(await db.from('sot_mail_queue').update({status:'review',reason:'Context and message exceed the safe batch size; focused review needed.'}).eq('user_id',uid).eq('thread_id',packed.oversized.thread_id));
+   if(packed?.input&&allowance.available>0){
+    job={id:crypto.randomUUID(),user_id:uid,status:'prepared',snapshot:{input:packed.input,threads:packed.threads.map(t=>({...t,message_ids:t.payload.messages.map((m:any)=>m.id)}))}};
+    checked(await db.from('sot_batch_jobs').insert(job));
+   }
   }
-  await db.from('sot_connections').update({last_error:message,scan_status:message.includes('spending limit')?'budget_paused':'error',next_scan_at:next.toISOString()}).eq('user_id',uid);
-  throw error;
- } finally {
-  const snapshot=await db.from('sot_connections').select('scan_status,last_error,section_progress,scanned_threads').eq('user_id',uid).maybeSingle();
-  await db.from('sot_scan_runs').update({finished_at:new Date().toISOString(),status:snapshot.data?.scan_status||'error',detail:snapshot.data?.last_error||snapshot.data?.section_progress||null,scanned_threads:snapshot.data?.scanned_threads||0}).eq('id',runId);
+  let paused=allowance.available<1;
+  if(job?.status==='prepared'){
+   if(!checked(await db.rpc('sot_reserve_batch',{job:job.id,manual}))){paused=true;checked(await db.from('sot_batch_jobs').delete().eq('id',job.id).eq('status','prepared'));}
+   else {
+    job.status='reserved';
+    try {
+     const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:instructions.replace('Maximum 8 suggestions.','Maximum 20 suggestions.')+'\n'+BATCH_RULES,input:job.snapshot.input,max_output_tokens:6000,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:proposalSchema}}})});
+     const usage=tokenCost(response.usage);
+     checked(await db.from('sot_batch_jobs').update(usage).eq('id',job.id));
+     if(response.status!=='completed')throw new Error('Incomplete AI answer');
+     const output=response.output?.flatMap((o:any)=>o.content||[]).filter((x:any)=>x.type==='output_text').map((x:any)=>x.text).join('');
+     const proposals=JSON.parse(output||'{}').suggestions;
+     if(!Array.isArray(proposals)||proposals.length>=20||proposals.some((p:any)=>!job.snapshot.threads.some((t:any)=>t.message_ids.includes(p.source_message_id))))throw new Error('Answer needs focused review');
+     checked(await db.from('sot_batch_jobs').update({status:'answered',response:proposals}).eq('id',job.id));job.status='answered';job.response=proposals;
+    }catch(error){
+     // Do not auto-repeat an uncertain paid request. Keep receipts unset for human follow-up.
+     for(const t of job.snapshot.threads)checked(await db.from('sot_mail_queue').update({status:'review',reason:'AI answer was incomplete or interrupted; review required before another paid attempt.'}).eq('user_id',uid).eq('thread_id',t.thread_id));
+     checked(await db.from('sot_batch_jobs').update({status:'review',reason:'Analysis needs review',finished_at:new Date().toISOString()}).eq('id',job.id));job.status='review';
+    }
+   }
+  }
+  if(job?.status==='answered'){
+   const results=[];
+   for(const t of job.snapshot.threads){
+    const ids=new Set(t.message_ids),proposals=job.response.filter((p:any)=>ids.has(p.source_message_id));
+    const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,pending);
+    results.push({thread_id:t.thread_id,fingerprint:t.fingerprint,proposals:rows});
+   }
+   made=checked(await db.rpc('sot_finish_batch',{job:job.id,results}));
+  }
+  const report:any=checked(await db.rpc('sot_queue_report',{uid}));allowance=await budget();
+  const more=!paused&&allowance.available>0&&(collecting||report.waiting>0);
+  const status=paused?'budget_paused':more?'running':report.needs_review?'follow_up':report.waiting?'budget_paused':collecting?'collecting':'complete';
+  checked(await db.from('sot_connections').update({scan_report:report,scan_status:status,last_error:report.needs_review?`${report.needs_review} conversations need focused review.`:null,deferred_threads:report.needs_review,scanned_threads:report.reviewed_messages,section_progress:null,next_scan_at:more||collecting?new Date(Date.now()+60000).toISOString():allowance.next_check,...(!collecting&&!report.waiting&&!report.needs_review?{last_completed_at:new Date().toISOString(),last_scan_at:new Date().toISOString()}: {})}).eq('user_id',uid));
+  return {more,created:made,deferred:report.needs_review,waiting:report.waiting,budget:allowance};
+ }catch(error){
+  const b:any=checked(await db.rpc('sot_budget',{manual}));
+  await db.from('sot_connections').update({scan_status:'error',last_error:error instanceof Error?error.message:'Scan interrupted',next_scan_at:b.next_check}).eq('user_id',uid);throw error;
+ }finally{
+  const snapshot=await db.from('sot_connections').select('scan_status,last_error,scanned_threads').eq('user_id',uid).maybeSingle();
+  await db.from('sot_scan_runs').update({finished_at:new Date().toISOString(),status:snapshot.data?.scan_status||'error',detail:snapshot.data?.last_error||null,scanned_threads:snapshot.data?.scanned_threads||0}).eq('id',runId);
   await db.from('sot_scan_locks').delete().eq('user_id',uid).eq('lease_id',lease);
  }
 }
+
 Deno.serve(async req=>{
  const url=new URL(req.url);
  if(req.method==='OPTIONS') return new Response('ok',{headers:cors});
@@ -248,7 +265,7 @@ Deno.serve(async req=>{
   const {data:{user},error}=await db.auth.getUser(bearer);if(error||!user) return json({error:'Sign in again'},401);
   await staff(user.id);
   const {action,suggestionId,query}=await req.json();
-  if(action==='status') return json({configured:configured(),startingMailbox:STARTING_MAILBOX});
+  if(action==='status') return json({configured:configured(),startingMailbox:STARTING_MAILBOX,budget:checked(await db.rpc('sot_budget',{manual:true})),report:checked(await db.rpc('sot_queue_report',{uid:user.id}))});
   if(action==='connect') {
    if(!configured()) return json({error:'Sierra’s Google connection setup is still needed.'},503);
    const state=crypto.randomUUID()+crypto.randomUUID();
@@ -278,7 +295,7 @@ Deno.serve(async req=>{
     return json({disconnected:true});
    } finally {await db.from('sot_scan_locks').delete().eq('user_id',user.id).eq('lease_id',lease);}
   }
-  if(action==='scan') {if(!configured()) throw new Error('Email setup is incomplete.');return json(await scan(user.id));}
+  if(action==='scan') {if(!configured()) throw new Error('Email setup is incomplete.');return json(await scan(user.id,true));}
   return json({error:'Unknown action'},400);
  } catch(error) {
   // Never log provider payloads, tokens, email bodies, or Authorization headers.

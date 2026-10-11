@@ -2,8 +2,8 @@
 -- and Vault (name: sot_scheduler_key). Never commit its value.
 create extension if not exists pg_cron;
 create extension if not exists pg_net with schema extensions;
--- Tick each minute to continue bounded discovery batches; completed mailboxes are
--- eligible only every three hours. One mailbox/thread per tick controls load.
+-- Tick each minute to continue collection/batches. The function enforces six
+-- Pacific slots (06/09/12/15/18/21), quiet hours and atomic shared allowances.
 select cron.schedule('sot-email-dispatch','* * * * *',$job$
  select net.http_post(
   url := 'https://vpyddcdncjmkjlidbsdi.supabase.co/functions/v1/sot/scheduled',

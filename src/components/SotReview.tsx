@@ -8,11 +8,19 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAppState } from '../context/AppStateContext';
 import { isInternalUser, isOwnerOrAdmin } from '../lib/permissions';
 import { getSupabase } from '../lib/supabaseClient';
-import { sotAction, type SotConnection, type SotSuggestion, type SotNotification } from '../lib/sot';
+import { sotAction, type SotConnection, type SotSuggestion, type SotNotification, type SotBudget, type SotReport } from '../lib/sot';
 
-function ScanProgress({connection:c}:{connection:SotConnection|null|undefined}){
- if(!c)return null;
- return <div className="card" aria-label="Scan progress"><strong>Scan status: {(c.scan_status||'idle').replaceAll('_',' ')}</strong><p>Last attempt: {c.last_attempt_at?new Date(c.last_attempt_at).toLocaleString():'Not recorded yet'} · Last completed scan: {(c.last_completed_at||c.last_scan_at)?new Date((c.last_completed_at||c.last_scan_at)!).toLocaleString():'No completed cycle recorded'}</p>{c.section_progress&&<p>{c.section_progress} · Results stay provisional until the conversation finishes.</p>}<p>{c.scanned_threads} conversations checked this cycle · {c.deferred_threads||0} needing follow-up</p><p>Next eligible attempt: {new Date(c.next_scan_at).toLocaleString()}. Spending limits may delay analysis.</p></div>;
+function ScanProgress({connection:c,report:r}:{connection:SotConnection|null|undefined;report?:SotReport|null}){
+ if(!c)return null;const report=r||c.scan_report;
+ return <div className="card" aria-label="Scan progress"><strong>Scan status: {(c.scan_status||'idle').replaceAll('_',' ')}</strong>
+ <p>Last attempt: {c.last_attempt_at?new Date(c.last_attempt_at).toLocaleString():'Not recorded yet'} · Last completed scan: {c.last_completed_at?new Date(c.last_completed_at).toLocaleString():'No completed cycle recorded'}</p>
+ {c.collected_through&&<p>Email collected through {new Date(c.collected_through).toLocaleString()}. Collection does not mean every message has been reviewed.</p>}
+ {report&&<><p>{report.waiting} conversations waiting · {report.needs_review} need focused review · {report.reviewed_messages} messages reviewed since batching started</p>
+ {report.oldest&&<p>Oldest waiting email: {new Date(report.oldest).toLocaleString()}</p>}
+ <p>Recorded email-analysis cost: ${Number(report.estimated_usd).toFixed(4)} · {report.input_tokens.toLocaleString()} input / {report.output_tokens.toLocaleString()} output tokens</p>
+ <p className="muted">Estimate since batching started; excludes historical usage, website searches, and {report.unpriced_calls} requests without reported usage. Not an invoice.</p>
+ {report.review_items?.length>0&&<details><summary>Conversations needing review</summary>{report.review_items.map(x=><p key={x.thread_id}>{x.reason} <a href={'https://mail.google.com/mail/u/?authuser='+encodeURIComponent(c.email)+'#all/'+encodeURIComponent(x.thread_id)} target="_blank" rel="noreferrer">Open in Gmail</a></p>)}</details>}</>}
+ <p>Next eligible automatic check: {new Date(c.next_scan_at).toLocaleString()}.</p></div>;
 }
 export function SotReview() {
  const {supportSnapshot}=useAppState();
@@ -30,6 +38,7 @@ function SupportSotReview(){
  </section>;
 }
 function LiveSotReview() {
+ const [budget,setBudget]=useState<SotBudget|null>(null),[report,setReport]=useState<SotReport|null>(null);
  const [editing,setEditing]=useState<SotSuggestion|null>(null);
  const {cloud,currentUser,data,refresh}=useAppState();
  const [params,setParams]=useSearchParams();
@@ -50,26 +59,26 @@ function LiveSotReview() {
    db.from('sot_notifications').select('*').eq('recipient_id',userId).is('read_at',null).order('created_at',{ascending:false}).limit(50),
   ]);
   if(results.some(r=>r.error)) throw new Error('SOT setup is not complete yet. Your existing dashboard is still available.');
-  if(mounted.current){setConnection(results[0].data);setSuggestions(results[1].data||[]);setNotifications(results[2].data||[]);setLoaded(true);}
+  const state=await sotAction('status');
+  if(mounted.current){setBudget(state.budget||null);setReport(state.report||null);setConfigured(!!state.configured);setConnection(results[0].data);setSuggestions(results[1].data||[]);setNotifications(results[2].data||[]);setLoaded(true);}
  },[cloud,userId]);
  useEffect(()=>{mounted.current=true;stop.current=false;return()=>{mounted.current=false;stop.current=true;};},[]);
  useEffect(()=>{
   if(!cloud||!isInternalUser(currentUser)) return;
   void load().catch(e=>setError(e.message));
-  void sotAction('status').then(r=>setConfigured(!!r.configured)).catch(()=>setConfigured(false));
   const id=setInterval(()=>{if(!running.current) void load().catch(e=>setError(e.message));},30000);
   return()=>clearInterval(id);
  },[load,cloud,currentUser?.role]);
  async function run(fn:()=>Promise<void>,label:string){if(running.current)return;running.current=true;setBusy(label);setError('');setMessage('');try{await fn();}catch(e){if(mounted.current)setError(e instanceof Error?e.message:'Please try again.');}finally{running.current=false;if(mounted.current)setBusy('');}}
  async function scan(){await run(async()=>{
   stop.current=false;
-  let more=true,batches=0,deferred=0;
-  while(more&&!stop.current&&batches<100){
-   const result=await sotAction('scan');more=!!result.more;deferred=result.deferred||0;batches++;
+  let more=true,batches=0,deferred=0,waiting=0,created=0;
+  while(more&&!stop.current&&batches<3){
+   const result=await sotAction('scan');more=!!result.more;deferred=result.deferred||0;waiting=result.waiting||0;created+=result.created||0;batches++;
    if(!mounted.current)return;
-   await load();setMessage(`Reading your conversations… ${batches} or fewer threads checked this session.`);
+   await load();setMessage(`Checked ${batches} batch step(s); ${created} new suggestions saved.`);
   }
-  if(mounted.current)setMessage(more?'Scan paused. Your progress is saved; choose Continue scan when ready.':deferred?`Email pass finished with ${deferred} conversation(s) needing follow-up. Saved suggestions remain available.`:'Scan complete. Review current task suggestions.');
+  if(mounted.current)setMessage(more||waiting?`${created} new suggestions saved. ${waiting} conversations remain queued; progress is saved for the next available check.`:deferred?`Email pass finished with ${deferred} conversation(s) needing follow-up. Saved suggestions remain available.`:'Scan complete. Review current task suggestions.');
  },'scan');}
  useEffect(()=>{
   if(loaded&&configured&&connection&&params.get('connection')==='connected'){
@@ -91,13 +100,14 @@ function LiveSotReview() {
   <p className="muted">Find current work in received and sent email, starting with the last seven days. Existing client relationships come first. Only you see your suggestions. Nothing becomes official until you add it.</p>
   {connection?<div className="sot-connection">
    <strong>{connection.email}</strong><span className="muted"> · Read-only Gmail access</span>
-   <ScanProgress connection={connection}/><p className="muted">{connection.last_scan_at?`Last completed scan: ${new Date(connection.last_scan_at).toLocaleString()}`:connection.scan_started_at?`Recent email scan in progress · ${connection.scanned_threads} conversations checked.`:'Ready to check the last seven days of email.'}</p>
-   <p className="muted">AI allowance: up to 10 calls per three hours and 20 per day across the workspace, within the monthly limit. Earlier unreviewed suggestions are retained outside this list.</p>
+   <ScanProgress connection={connection} report={report}/>
+   <p className="muted">20 calls per Pacific day · 600 monthly cap · up to 10 in a rolling three-hour window. Three calls are released per check; unused allowance carries forward that day, with two calls reserved for manual checks.</p>
+   {budget&&<p><strong>{budget.available} calls available now</strong> · {budget.daily_used}/{budget.daily_limit} today · {budget.monthly_used}/{budget.monthly_limit} this month. Daily reset: {new Date(budget.daily_reset).toLocaleString()}.</p>}
    {connection.last_error&&<p role="alert">Scan paused: {connection.last_error}</p>}
-   <p className="muted">{connection.auto_scan?'Automatic checks run every three hours; small batches continue between checks within spending limits.':'Automatic checks are paused.'} Next eligible check: {new Date(connection.next_scan_at).toLocaleString()}.</p>
+   <p className="muted">{connection.auto_scan?'Automatic checks: 6 AM, 9 AM, noon, 3 PM, 6 PM and 9 PM Pacific. Queued batches continue within the released allowance; no automatic checks midnight–6 AM.':'Automatic checks are paused.'} Next eligible check: {new Date(connection.next_scan_at).toLocaleString()}.</p>
    <button className="btn" disabled={!!busy} onClick={()=>void run(async()=>{const r=await getSupabase().rpc('sot_set_auto_scan',{enabled:!connection.auto_scan});if(r.error)throw new Error(r.error.message);await load();},'auto')}>{connection.auto_scan?'Pause automatic checks':'Enable automatic checks'}</button>
    <div className="row" style={{flexWrap:'wrap'}}>
-    <button className="btn btn-primary" disabled={!!busy||!configured} onClick={()=>void scan()}>{busy==='scan'?'Reading email…':connection.scan_cursor?'Continue scan':'Scan recent emails'}</button>
+    <button className="btn btn-primary" disabled={!!busy||!configured} onClick={()=>void scan()}>{busy==='scan'?'Reading email…':'Check email now'}</button>
     {busy==='scan'&&<button className="btn" onClick={()=>{stop.current=true;setMessage('Pausing after the current batch…');}}>Pause scan</button>}
     <button className="btn" disabled={!!busy||!configured} onClick={()=>void run(async()=>{const r=await sotAction('connect');if(r.url)window.location.assign(r.url);},'connect')}>Reconnect</button>
     <button className="btn btn-danger" disabled={!!busy} onClick={()=>void run(async()=>{await sotAction('disconnect');await load();setMessage('Gmail disconnected. Pending suggestions were removed; accepted tasks remain.');},'disconnect')}>Disconnect Gmail</button>
