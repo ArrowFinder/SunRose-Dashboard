@@ -4,7 +4,7 @@
 
 ## Release sequence
 
-1. Review the branch and run `npm ci`, `npm test`, `npm run build`, and `deno check supabase/functions/sot/index.ts`. Frontend TypeScript does not check server files. Tests run locally without paid API calls.
+1. Review the branch and run `npm ci`, `npm test`, `npm run build`, and `deno check supabase/functions/sot/index.ts`. Frontend TypeScript does not check server files. The root `deno.json` enables automatic resolution of SOT’s pinned npm dependencies, which may differ from the frontend lockfile. Tests run locally without paid API calls.
 2. Before changing production schema, create a protected **database schema/data backup**, record the current source revision, and verify restoration in an isolated database. A browser JSON export or Git snapshot alone is not a database backup. Keep backup files and credentials outside Git.
 3. Check the production migration history. Apply only unapplied migrations in filename order. The audit release adds `20261013000000_audit_reliability.sql`; it preserves existing tasks, time entries and budgets. Never rerun the original profiles migration over a current installation—it can restore obsolete policies.
 4. Deploy the entire `supabase/functions/sot` directory, including `context.ts` and `validation.ts`. Preserve existing server secrets and `supabase/config.toml`. Google OAuth callbacks cannot supply the gateway JWT; application routes validate staff authentication themselves.
