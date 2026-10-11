@@ -101,6 +101,7 @@ export type SharedView = {
 export interface Database {
   public: {
     Tables: {
+      client_requests:Table<{id:string;client_id:string;title:string;description:string;status:string;task_id:string|null;created_at:string}>;
       projects: Table<ProjectRow>;
       profiles: Table<ProfileRow>;
       clients: Table<ClientRow>;
@@ -121,6 +122,10 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      review_client_request:{Args:{request_id:string;selected_project:string|null;dismiss:boolean};Returns:string|null};
+      sot_project_approvals:{Args:Record<string,never>;Returns:(SotSuggestion & {reviewer_name:string})[]};
+      sot_review_messages:{Args:{thread:string};Returns:{id:string;subject:string;date:string;bytes:number}[]};
+      sot_recover_thread:{Args:{thread:string;action:string;selected_ids:string[]|null;reason:string};Returns:undefined};
       payroll_data: {Args:Record<string,never>;Returns:import('./payroll').PayrollData};
       set_staff_pay_rate: {Args:{member:string;rate:number;currency_code:string};Returns:undefined};
       create_pay_period: {Args:{member:string;first_day:string;last_day:string;zone:string;frequency:string};Returns:string};

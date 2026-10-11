@@ -1,5 +1,7 @@
 # Shared workspace rollout
 
+> Historical release receipt. For current behavior and deployment, use the [documentation home](docs/README.md). The dates, counts and rollout status below describe that earlier release.
+
 This branch connects the existing SunRose screens to shared Supabase storage. The migration was applied to the existing Supabase project on September 23, 2026. GitHub Pages publication and real-account browser acceptance checks are still pending.
 
 ## What changes

@@ -1,176 +1,36 @@
-# Simple guide: get the app on GitHub + live on the web (checklist A)
+# Validate and deploy SunRose
 
-Follow **Part 1** first. Parts **2–4** depend on having a GitHub repo.
+[Documentation home](docs/README.md) · [SOT setup](docs/SOT_SETUP.md) · [Audit remediation](docs/AUDIT_REMEDIATION.md)
 
-Your live site will look like:
+## Release sequence
 
-`https://YOUR-GITHUB-USERNAME.github.io/YOUR-REPO-NAME/`
+1. Review the branch and run `npm ci`, `npm test`, `npm run build`, and `deno check supabase/functions/sot/index.ts`. Frontend TypeScript does not check server files. Tests run locally without paid API calls.
+2. Before changing production schema, create a protected **database schema/data backup**, record the current source revision, and verify restoration in an isolated database. A browser JSON export or Git snapshot alone is not a database backup. Keep backup files and credentials outside Git.
+3. Check the production migration history. Apply only unapplied migrations in filename order. The audit release adds `20261013000000_audit_reliability.sql`; it preserves existing tasks, time entries and budgets. Never rerun the original profiles migration over a current installation—it can restore obsolete policies.
+4. Deploy the entire `supabase/functions/sot` directory, including `context.ts` and `validation.ts`. Preserve existing server secrets and `supabase/config.toml`. Google OAuth callbacks cannot supply the gateway JWT; application routes validate staff authentication themselves.
+5. Publish the matching frontend through a reviewed merge to `main`. GitHub Pages must use **GitHub Actions** as its publishing source. The workflow runs the test suite and SOT server type check before deploying.
+6. Verify the actual published revision and perform the release checks below. Record what was observed, separately from local tests. Never report a deployment as complete based only on a local build.
 
-(Hash links like `#/login` work on that URL.)
+## Configuration
 
----
+GitHub Actions build secrets: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (public/anon, never service role). The workflow supplies `VITE_BASE=/SunRose-Dashboard/` from the repository name. Production uses hash routes under `https://arrowfinder.github.io/SunRose-Dashboard/`.
 
-## If deploy fails: “Branch main is not allowed to deploy to github-pages”
+Use the existing Supabase project and account roles. Auth site/redirect URLs must match intended deployment and local development URLs. Do not recreate owner accounts or change role assignments as part of deployment.
 
-That means the **`github-pages` environment** has **protection rules** that block your `main` branch.
+SOT's server secrets and Google OAuth setup are documented in [SOT setup](docs/SOT_SETUP.md). The minute dispatcher is in `supabase/deployment/schedule_sot.sql`; its Vault secret must match the function's scheduler secret. The function, not the cron interval, enforces the six Pacific analysis slots. Replacing an existing named schedule should be deliberate and verified.
 
-1. On GitHub, open your repo → **Settings** → **Environments** (left sidebar, under “Code and automation”).
-2. Click **`github-pages`**.
-3. **Deployment branches and tags** (or “Deployment branches”):
-   - Choose **All branches**, **or**
-   - **Selected branches** → add **`main`** (or a rule that includes `main`).
-4. **Required reviewers**: set to **none** (0) for a personal project, unless you want to approve every deploy by hand.
-5. **Wait timer**: set to **0 minutes** unless you intentionally want a delay.
-6. **Save**, then re-run the workflow: **Actions** → **Deploy to GitHub Pages** → **Run workflow**.
+## Audit-release acceptance checks
 
-The Node.js “deprecated” line in annotations is a **warning** from GitHub’s runners; it does not usually fail the job. Fixing the environment rules fixes the **red** error.
+- Owner and employee sign-in; client isolation and read-only support view.
+- Client-link request is saved once, visible in the owner inbox, and becomes a task only after choosing a valid project.
+- Owner approval of an employee project links pending suggestions without accepting tasks or changing their reviewer.
+- A failed Gmail retrieval preserves queued content. Recovery can queue selected messages, retain the remainder, or audit a manual resolution.
+- An updated instruction for the same task can appear separately; exact replay remains idempotent.
+- Historical time can be corrected after a task move; protected pay periods and permissions still reject unauthorized edits.
+- Read the current queue/budget/status and scheduler records. A paid real scan needs intended mailbox/spending authorization; deployment does not require one automatically.
 
----
+## Rollback and troubleshooting
 
-## Part 1 — Put the code on GitHub
+Pause automatic SOT checks before a coordinated server/database recovery. Retain new intake/recovery records and the pre-release backup; do not drop additive tables as a routine rollback. Assess compatibility before reverting only the frontend or function. Database restoration is a separate approved recovery action that can replace newer business data.
 
-### Step 1. Create a new empty repository on GitHub
-
-1. Log in at [github.com](https://github.com).
-2. Click the **+** (top right) → **New repository**.
-3. Pick a **Repository name** (example: `sunrose-client-dashboard`). Remember this name—you need it for the live URL.
-4. Leave **Public** or **Private** as you prefer.
-5. **Do not** add a README, .gitignore, or license (you already have files on your computer).
-6. Click **Create repository**.
-
-GitHub will show you commands—use **Part 2** below instead if you already have the project on your machine.
-
-### Step 2. Connect your computer folder to that repo and push
-
-1. Open **Terminal** (or Cursor’s terminal).
-2. Go to your project (use your real path):
-
-   ```bash
-   cd "/Users/rick/Desktop/SunRose Client Dashbaord"
-   ```
-
-3. If you have **not** run `git init` before, run:
-
-   ```bash
-   git init
-   git add -A
-   git commit -m "Initial commit"
-   ```
-
-4. Link to GitHub (replace `YOUR-USER` and `YOUR-REPO` with yours):
-
-   ```bash
-   git remote add origin https://github.com/YOUR-USER/YOUR-REPO.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-5. Refresh the repo page on GitHub—you should see all your files. **`.env` will not appear** (that’s correct; secrets stay on your computer).
-
----
-
-## Part 2 — Turn on GitHub Pages (where the website is served)
-
-This project’s workflow uses **GitHub Actions** to publish (not the `gh-pages` branch).
-
-1. On GitHub, open your repository → **Settings** → **Pages**.
-2. Under **Build and deployment** → **Source**, choose **GitHub Actions** (not “Deploy from a branch”).
-
-If you previously chose **Deploy from a branch** and saw a **404**, switch the source to **GitHub Actions** so it matches `.github/workflows/deploy-pages.yml`.
-
----
-
-## Part 3 — Deploy the built site (choose one path)
-
-### Path A — Automatic (recommended): push to `main` and let GitHub build
-
-1. On GitHub: **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
-2. Add **two** secrets (same values as in your local `.env` file):
-
-   | Name | Value |
-   |------|--------|
-   | `VITE_SUPABASE_URL` | Your Supabase Project URL |
-   | `VITE_SUPABASE_ANON_KEY` | Your Supabase **anon / public** key (not `service_role`) |
-
-3. Push any change to the **`main`** branch (or merge to `main`). The workflow **Deploy to GitHub Pages** runs and updates the site.
-
-4. After a few minutes, open:
-
-   `https://YOUR-USER.github.io/YOUR-REPO/`
-
-If the workflow fails, open the **Actions** tab on the repo and read the red error message.
-
-### Path B — Manual from your Mac (no GitHub Actions)
-
-1. In the project folder, create **`.env.production`** (copy from `.env.production.example`) with:
-
-   ```env
-   VITE_BASE=/YOUR-REPO-NAME/
-   VITE_SUPABASE_URL=paste-your-url
-   VITE_SUPABASE_ANON_KEY=paste-your-anon-key
-   ```
-
-   Use the **same repo name** as on GitHub, with slashes: `/sunrose-client-dashboard/` if the repo is `sunrose-client-dashboard`.
-
-2. Run:
-
-   ```bash
-   npm run deploy
-   ```
-
-3. This uses the `gh-pages` tool to push the **`dist`** folder to the **`gh-pages`** branch.
-
-4. Set **Pages** to the **`gh-pages`** branch (Part 2).
-
----
-
-## Part 4 — Supabase: database + auth URLs (one-time)
-
-### Step 1. Run the SQL migration (if you haven’t already)
-
-1. Open [Supabase](https://supabase.com) → your project.
-2. Click **SQL Editor** in the left sidebar → **New query**.
-3. On your computer, open `supabase/migrations/20250201000000_profiles.sql`, copy **all** of it, paste into Supabase, click **Run**.
-
-### Step 2. Allow your app URLs (fixes login redirects)
-
-1. In Supabase: **Authentication** → **URL Configuration**.
-2. **Site URL**: you can set it to your GitHub Pages URL, e.g.  
-   `https://YOUR-USER.github.io/YOUR-REPO/`
-3. **Redirect URLs**: add **both**:
-
-   - `http://localhost:5173`
-   - `https://YOUR-USER.github.io/YOUR-REPO/`
-
-   (Include the trailing slash only if Supabase shows examples that way; both with and without slash often work—if login fails, try adding the exact URL from the browser address bar.)
-
-### Step 3. Make yourself owner (first account)
-
-After you **sign up** once on the live site:
-
-1. Supabase → **Authentication** → **Users** → copy your user’s **UUID**.
-2. **SQL Editor** → run:
-
-   ```sql
-   update public.profiles set role = 'owner' where id = 'PASTE-UUID-HERE';
-   ```
-
----
-
-## Quick checklist
-
-- [ ] Repo created on GitHub; code pushed from your computer  
-- [ ] **Secrets** added (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) **or** `.env.production` used for manual deploy  
-- [ ] **Deploy** ran (Actions workflow or `npm run deploy`)  
-- [ ] **Pages** points at **`gh-pages`** branch  
-- [ ] Supabase **SQL** migration run  
-- [ ] Supabase **redirect URLs** include localhost + GitHub Pages URL  
-- [ ] **Owner** role set in SQL after first signup  
-
----
-
-## If something breaks
-
-- **Blank page on GitHub Pages** — Usually wrong **`VITE_BASE`**. It must be `/repo-name/` matching the repo name exactly (case-sensitive).  
-- **Login works locally but not on GitHub** — Redirect URLs in Supabase, or missing build-time env (secrets / `.env.production`).  
-- **Workflow fails** — **Actions** tab → open the failed run → read the log.
+A Pages build failure now includes failing tests. Fix the failure rather than bypassing the gate. For Pages environment restrictions, allow the intended `main` deployment under the existing review policy; do not remove review protections merely to force publication. A blank frontend often indicates incorrect base-path/build configuration. Google return failures require checking the exact callback URI and server configuration, without exposing secrets.

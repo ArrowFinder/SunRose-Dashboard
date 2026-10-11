@@ -33,8 +33,9 @@ for (const u of users)
 await db.exec(
   `update public.profiles set role='owner',display_name='Preview Owner' where id='${users[0].id}';update public.profiles set role='employee',display_name='Preview Employee' where id='${users[1].id}';insert into public.clients(id,name,share_token,retainer_hours_per_month,color) values('10000000-0000-4000-8000-000000000001','Preview client','preview-client-link',10,'#c2410c');insert into public.client_members(user_id,client_id) values('${users[2].id}','10000000-0000-4000-8000-000000000001');`,
 );
+await db.exec(`insert into projects(id,client_id,name) values('30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Preview campaign');`);
 // A deliberately overlong saved session for exercising owner/admin correction.
-await db.exec(`insert into public.work_items(id,client_id,year_month,title) values('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',to_char(now(),'YYYY-MM'),'Sample time correction');
+await db.exec(`insert into public.work_items(id,client_id,project_id,year_month,title) values('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001',to_char(now(),'YYYY-MM'),'Sample time correction');
 insert into public.time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values('20000000-0000-4000-8000-000000000001','${users[1].id}',now()-interval '1 day',now()-interval '16 hours',480);`);
 // Sample suggestions contain no real email or credentials.
 await db.exec(`insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,source_subject,evidence) values
@@ -44,7 +45,11 @@ await db.exec(`update public.sot_suggestions set payload=payload||'{"analysis_ve
 insert into public.sot_client_contacts(email,client_id) values('sam@two.test','10000000-0000-4000-8000-000000000001');
 insert into public.sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values('${users[0].id}','client','preview-shared-contact','Second Business','A contact who also works with Preview client is requesting work for Second Business.','{"client_name":"Second Business","contact_email":"sam@two.test","client_id":null,"parent_id":null,"task_id":null,"due_date":null,"estimated_hours":null,"checklist":{"business_name":true,"contact_email":true,"relationship_evidence":true,"existing_clients_checked":true,"identity_resolved":false,"ready":false,"explanation":"This contact also represents Preview client. Confirm which business this email concerns."}}','second-thread','Please create a campaign for Second Business.');`);
 await db.query("insert into public.sot_connections(user_id,email,last_error) values($1,'preview@example.test','Sample paused scan: monthly allowance reached.')",[users[0].id]);
+await db.query("insert into client_requests(id,client_id,title,description) values(gen_random_uuid(),'10000000-0000-4000-8000-000000000001','Review new website copy','Please review our new page.')");
+await db.query(`insert into sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,'project','preview-employee-project','Winter campaign','Email campaign for winter.','{"client_id":"10000000-0000-4000-8000-000000000001","client_name":"Preview client","checklist":{"identity_resolved":true},"analysis_version":4}','preview-project','Please prepare our winter campaign.')`,[users[1].id]);
+await db.query(`insert into sot_mail_queue(user_id,thread_id,fingerprint,payload,status,reason,oldest_at) values($1,'preview-review','fp',$2,'review','Interrupted request; review before retrying.',now())`,[users[0].id,JSON.stringify({messages:[{id:'a',subject:'First campaign request',date:new Date().toISOString(),body:'Please prepare the campaign.'},{id:'b',subject:'Second campaign request',date:new Date().toISOString(),body:'Please review the draft.'}]})]);
 const allowed = new Set([
+  "client_requests",
   "projects",
   "sot_client_profiles",
   "sot_client_contacts",
@@ -60,6 +65,7 @@ const allowed = new Set([
   "active_timers",
 ]);
 const rpc = new Set([
+  "sot_review_messages","sot_recover_thread","review_client_request","sot_project_approvals","sot_accept_project",
   "save_time_log","start_project_timer","payroll_data","set_staff_pay_rate","create_pay_period","change_pay_period","support_user_snapshot","sot_edit_and_accept","sot_approve_project_and_task",
   "member_client_view",
   "workspace_revision",
@@ -161,7 +167,7 @@ const server = http.createServer((req, res) => {
             res.end();
             return;
           }
-          if(url.pathname === "/functions/v1/sot") return send(200, {configured:false});
+          if(url.pathname === "/functions/v1/sot") return send(200, {configured:false,budget:(await db.query('select sot_budget() b')).rows[0].b,report:user?(await db.query('select sot_queue_report($1) r',[user.id])).rows[0].r:null});
           if (!url.pathname.startsWith("/rest/v1/"))
             return send(404, { message: "Not found" });
           await db.exec("begin");

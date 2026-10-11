@@ -1,89 +1,66 @@
-# SOT: evidence, scope and human confirmation
+# SOT: current behavior and budget contract
 
-SOT's goal is to assemble an evidence-backed picture of Sunrose's client work, reduce missed commitments and administrative effort, and keep people in control of what becomes official. It does not maximize task count. An empty result is correct when information does not support an action.
+[Documentation home](README.md) · [Setup](SOT_SETUP.md) · [Recovery](SOT_RECOVERY.md)
 
-This is the current implementation contract. Historical deployment notes describe what was true at their dates; this document takes precedence for behavior.
+## Goal and authority
 
-## Knowledge hierarchy
+SOT assembles an evidence-backed picture of SunRose's work: **Client → Project → Task → Subtask**. It seeks factual scope and outstanding commitments, not the largest possible task count. Email, signatures, prior summaries and model output are untrusted evidence, never instructions to execute. Nothing becomes official without human review.
 
-Client → Project → Task → Subtask.
+Confirmed client contacts, domains, aliases and owner-maintained context guide identity matching. An existing client in the participants or text is considered before a new client. Sponsors, venues and vendors mentioned in that relationship are not automatically clients. Multiple possible clients remain ambiguous for human review.
 
-- Confirmed clients, contacts, domains, aliases and owner-maintained context anchor identity. A venue or sponsor mentioned by an existing client is normally scope context, not a new client.
-- Approved projects define distinct engagements, campaigns or ongoing workstreams. Different event dates remain separate projects. General is not an assignable project. Legacy tasks retain their historical references until a person assigns a specific project; the dashboard flags them as Project required.
-- A task is a specific outstanding Sunrose deliverable. A subtask belongs to an existing top-level task and inherits its project.
-- Source messages provide evidence about requests, delivery and changes. Approval establishes an organizational decision; it does not guarantee an email claim is objectively true or that a task remains outstanding forever.
-- Pending suggestions, prior scan summaries and inferred groupings are hypotheses. Never treat an inferred summary as a quotation or an accepted fact.
+Suggestion types are client, project, task (including subtask), update, and completion. Projects are independent proposals; approving one never accepts its tasks. Repeated events on different dates remain distinct. Tasks require a specific approved project; “General” is not an assignable project. Completion needs evidence of delivery, not a promise. Unknown, cancelled and already completed work must not become new tasks. Exact source quotations support proposals; dates and estimates require their own cited evidence.
 
-## Independent suggestion types
+Internal SunRose emails can support work for an existing client identified by the supplied relationship context. They cannot establish a new client without an external participant, and internal addresses are never saved as client contacts.
 
-1. **Client:** business identity and evidence of a service relationship; no bundled tasks.
-2. **Project:** proposed initiative name, scope, client, supporting conversations and uncertainties. Owner/Admin approval creates only a project. Related pending tasks become linked to its ID but remain unaccepted. No billing amount, rate, hours or event deadline is inferred.
-3. **Task/subtask:** actionable outstanding work, with a confirmed project selected before acceptance. Each task remains independently editable/approvable.
-4. **Update:** material new information for a specific supplied task ID; approval appends information with stale-version protection.
-5. **Completion:** evidence of completed delivery for a specific existing task; promises and approvals are not completion. Existing subtasks and running clocks retain their protections.
+## People and review
 
-Project suggestions appear as their own cards, ahead of task suggestions. Adding a task cannot create a project as a side effect. The previous combined approval RPC now returns an explanatory error. An employee can receive a project proposal but only Owner/Admin can create projects. Each person's suggestions remain private; the existing explicit support view is read-only.
+Active owners, admins, supervisors and employees may connect Gmail. Each person reviews their own work suggestions. Accepted tasks are assigned to that person and start private; owners and supervisors receive notifications. Owner/admin approval is required for projects. The Overview owner review inbox exposes other staff members' project proposals, allowing approval without impersonating them. Related tasks remain pending under the originating reviewer. Support view stays read-only.
 
-## Evidence and contradiction checks
+Client share requests enter a separate intake table and appear in the owner review inbox. An owner/admin selects a client project to create a task, or dismisses the request. New tasks start private and assigned to the reviewer. Intake is idempotent and limited to 20 requests per client per hour. Anonymous visitors cannot read the intake table.
 
-The engine validates a nontrivial quotation against the cited message body. A subject, footer, signature or fabricated quotation is insufficient. Proposals must cite a supplied message inside the current scan window. Dates and estimates require separate supporting quotations; otherwise those fields are cleared. These quotation checks prove text exists, not that a model interpreted it correctly.
+## Collection and analysis
 
-Project matching validates same-client references and evidence for dated occurrences. A standalone project requires a confirmed client relationship and a supporting project quotation. Unclear initiative boundaries stay unresolved. Different initiatives mentioned together must be separated only when the evidence supports separate deliverables.
+Gmail access is read-only. Routine discovery starts with seven days of inbox/sent mail; later collection overlaps its watermark by one day. A returned thread can contain up to 90 days of context. Attachments and Google Docs are not read. This is not an exhaustive mailbox archive.
 
-New tasks require `outstanding` work state; completion requires `completed`; updates require `changed`. Explicit sent/completed/cancelled wording in a task's quotation is rejected conservatively. The prompt compares newer sent and received replies, distinguishes stopping promotion from necessary post-event follow-up, and never invents a task to 'confirm whether' work exists just because the model is uncertain.
+Collection and analysis have separate checkpoints. Unreviewed messages persist in a server-only queue. Retrieval failures use a separate retry record retaining the original collection window; they never overwrite queued evidence. A step collects up to three listed conversations plus two failed retrievals. Successful retrieval retries are removed; failures remain eligible for subsequent checks.
 
-Existing tasks and the reviewer's saved suggestions are included as bounded context across conversations. Exact task repeats with the same client, project/proposed project, parent and due date are suppressed; close title matches in that same scope are flagged for review. Semantic paraphrases, differing dates and cross-project ambiguity are not safely solved by string matching. They rely on the model comparison and human review. No automatic deletion or completion is performed from a similarity guess.
+Up to six conversations for the same confirmed client share one synchronous model request. Ambiguous conversations remain separate. This is application batching, not the provider's asynchronous Batch API. Each step makes at most one paid analysis request. A step with no eligible work uses no analysis call.
 
-## Memory and rescans
+All matching client tasks/projects are paginated from the database before selecting prompt context. Work relevant to the email is ranked first; full retrieved tasks remain available to server-side duplicate checks. Prompt context is still bounded: initially up to 60 tasks and 30 projects, further trimmed to fit 16,000 UTF-8 bytes. Omission counts are supplied to the model. This prevents the former global newest-300 cutoff, but does not claim unlimited model context or perfect semantic matching.
 
-Project identity uses client plus normalized project name, including any event date. Evidence from additional conversations is collected on the pending project card (up to 12 source entries). Accepted project descriptions are supplied as confirmed scope on later scans. Pending scope and supporting excerpts are explicitly marked unconfirmed in model context.
+New email content over 10,000 serialized bytes requires focused review. Output is limited to 6,000 tokens and at most 20 proposals; reaching 20, incomplete answers, unknown source IDs and uncertain paid failures require review. Full queued text is retained. A saved answer can be published without another paid request. Publication and message receipts commit atomically. Finishing selected messages leaves the rest unreviewed and removes any premature completed-thread cache.
 
-Scans preserve existing pending corrections, dismissals and approvals instead of deleting a thread's previous suggestions. An empty result does not prove old suggestions are no longer valid. Stale/conflicting pending suggestions may still need manual review. Archived rows are not silently resurfaced by unrelated payload edits.
+## Recovery and memory
 
-Accepted/dismissed review history is retrieved as context; it is not model training. Rejection without a reason is not a permanent client blacklist. No claim is made that SOT remembers every email or reconstructs an entire engagement perfectly: message, context and budget limits bound its view.
+The SOT page offers message selection and **Queue retry**, or **Mark handled manually** with a reason. Retrying only queues work; the same budget applies when analysis runs. An uncertain earlier request may already have been billed. Overlarge individual messages can be reviewed in Gmail and resolved manually. Unselected messages remain in review. Manual resolutions are counted separately from AI-reviewed messages. Recovery actions are audited and cannot race an active scan.
 
-## Current operating limits
+An unchanged completed message is not reanalysed automatically. New task identities distinguish client, project, parent, title and deadline. Updates/completions additionally distinguish the cited message and change content, so a later instruction is not permanently suppressed by an earlier update. Exact replay stays idempotent. Accepted/dismissed history is retrieved as context, not model training; dismissal without a reason does not blacklist a client.
 
-Read-only Gmail inbox and sent mail. Current-work query starts at seven days, then uses a one-day overlap after the last completed scan. Selected threads may include messages from the prior 90 days, with new-content analysis limited to the current seven-day window and oversized work deferred before paid analysis. Unchanged fingerprints skip AI calls. Engine changes reconsider only threads returned by this bounded query, not the whole mailbox.
+Previously discarded evidence cannot be reconstructed from an empty queue row. Legacy empty review entries can request retrieval from Gmail. Already completed historical scans are not automatically rescanned by this release.
 
-Known-client mail uses one work-analysis call (projects/tasks/updates/completions); unknown relationships may add a separate client-discovery call. No extra project-only API pass is added. Serialized input stays within 16,000 UTF-8 bytes, output within 2,400 tokens, and each pass proposes at most eight items. Relevant context is selected first. Optional context is trimmed with explicit omission counts; email evidence and carried candidates are not silently truncated. Exact previously quoted blocks may be removed when their original is retained. Signatures and uncertain quoted content are preserved to avoid losing instructions.
+## Shared budget — authoritative rules
 
-The scheduler checks due mailboxes each minute, resumes unfinished batches, and schedules the next completed scan after three hours. Workspace caps remain 10 calls per rolling three hours, 20 per UTC day and the configured monthly allowance (default 300; October's approved exception is 600). Reserved failed calls count. No budget increase or paid scan is part of this change.
+| Control | Value |
+|---|---|
+| Automatic slots | 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 America/Los_Angeles |
+| Quiet hours | Midnight–06:00 Pacific; manual checks may use available reserve |
+| Released allowance | 3 additional calls per slot; unused allowance carries within that Pacific day |
+| Automatic daily maximum | 18 |
+| Manual reserve | 2 additional calls, within the total daily maximum |
+| Total daily maximum | 20; resets at Pacific midnight |
+| Rolling maximum | 10 calls in three hours |
+| Monthly analysis maximum | Configured cap; default 600; resets on UTC month boundary |
+| Website lookup | Separate maximum of 40 searches per UTC month |
+| Budget ownership | Shared across all connected users, not per employee |
 
-No Google Docs, attachments, external links, autonomous outbound messages, invoices or payroll decisions. Website lookup remains a separate optional reviewed action.
+A minute-based dispatcher selects due connections and continues queued work within the released allowance. A manual button run performs up to three steps. Connecting a mailbox may initiate a manual scan. Failed/uncertain reserved requests count. Atomic reservations serialize on the monthly usage row and reserve a job only once.
 
-## Upgrade and validation
+These are call limits, not a dollar spending guarantee. The 600-call cap takes precedence over the daily allowance: using 20 calls on all 31 days would require 620. More connected mailboxes share capacity and may increase waiting time. No audit fix increases these limits or starts a paid scan.
 
-Apply migrations in order through `20261011000000_sot_scan_sections.sql`, then deploy the SOT function and frontend. The migration extracts older embedded project proposals into independent cards and links their pending tasks, preserving originals and marking imported scope as unconfirmed. It does not create official projects or tasks. Existing approved business records and time history are unchanged.
+Cost estimates use the versioned rates in `supabase/functions/sot/batches.ts`. They cover reported token usage since batching began, exclude old unmetered requests, website lookups and other services, and expose the number of requests without reported usage. They are not an invoice.
 
-Run `npm test`, `npm run build`, and a Deno type check. Tests cover standalone approval, role/ownership/stale-state controls, retry safety, independent task approval, source validation, exact dedupe, distinct event scopes, evidence aggregation and preserved review decisions. Automated tests do not establish live model accuracy. Validate a bounded real scan with Sierra when ready; distinguish actual observed results from expected behavior.
+## Security and verification
 
-## Resumable conversation sections
+OAuth refresh credentials are encrypted server-side. Gmail permission is read-only. App requests verify active staff authentication; the Google callback uses hashed, single-use, expiring state. Queue payloads, job answers and receipts are not readable through authenticated table access. Review operations are scoped to the signed-in mailbox; owner project review is separately authorized and audited. Completed job payloads are cleared.
 
-Each invocation performs at most one reserved AI call. Chronological message fragments are grouped into sections of approximately 8 KB before context; serialized requests remain at most 16 KB. Every successful section/pass response is checkpointed in server-only `sot_thread_progress`. Later sections revise the carried provisional candidates; suggestions are published only after all sections and passes complete and citations pass validation. There are at most eight candidates per pass; this remains a bounded review, not exhaustive extraction. Semantic cancellation handling depends on the model and human review.
-
-Mailbox discovery and unfinished threads alternate so a long conversation does not monopolize processing. A thread-level parsing/provider/size error is deferred, its position saved, and the mailbox advances. Deferred threads are retried on a later scan cycle. A pass with deferred threads is labeled follow-up, not full completion; its previous completed watermark is retained. Unchanged legacy cached threads remain skipped rather than being rescanned solely for this upgrade. Model calls successfully checkpointed are not repeated on a normal retry. A process crash between provider response and database checkpoint can still cause a repeated charge; exactly-once provider billing cannot be guaranteed.
-
-The UI shows last attempt, last full completion, conversations checked, the current section, follow-up count and next eligible attempt. Server-only `sot_scan_runs` retains attempt outcomes from this release onward; historical attempts are not fabricated. Spending limits remain 10 per three hours, 20 per UTC day and the configured monthly allowance. No automatic budget increase is made. Full-cycle completion still depends on available allowance and all deferred work resolving.
-
-
-### Current-email processing (October 10 follow-up)
-Automatic analysis selects unreviewed message IDs in the current seven-day window, bounded by the scan watermark. Completed message IDs are retained server-side; new replies do not require reanalysis of already completed messages. This is current-work coverage, not an exhaustive historical discovery scan. Existing completed thread cache remains compatible. In-progress section checkpoints from the old strategy restart under fresh-v1 because their boundaries differ; official suggestions and tasks are retained.
-
-Verified repeated lines in quoted reply history are removed only when present in an earlier message. New inline replies and unknown forwarded material are preserved. HTML block boundaries are retained. One older message excerpt (up to 2,000 characters) is context only, alongside current workspace facts. It cannot independently support a new suggestion. Ambiguous references require clarification.
-
-Sections now hold up to approximately 8 KB of email content within the unchanged 16 KB total input limit. More than four sections of new content causes a thread to be deferred before any AI call; it cannot monopolize the automatic allowance. Deferred threads need focused review, and a scan with deferred threads is not reported as fully complete. Budget limits remain unchanged. No claim is made that arbitrary historical context can be reconstructed from a short excerpt.
-
-
-## Batched current-work engine (current, October 11)
-This replaces the section-based execution described above. Collecting mail and completing AI review now have separate checkpoints. Collection starts with seven days, then uses an overlap from the collection watermark. It adds unreviewed messages to a durable server-only queue, preserving queued messages across later collection windows. Existing completed thread fingerprints remain compatible. Receipts are recorded atomically with suggestion publication; retries of saved answers do not call OpenAI again.
-
-Up to six small conversations with the same confirmed client can share one synchronous Responses API call. This is application batching, not the delayed OpenAI Batch API. Ambiguous/unmatched conversations remain separate. Context prioritizes the client's projects/tasks and pending decisions. Source message IDs are checked within their original conversation; evidence from another thread cannot supply its client, deadline or quotation. Combined analysis returns distinct client/project/task/update/completion proposals, with subtasks expressed through parent IDs. Human approval remains required. Output saturation, truncation, unknown source IDs and uncertain paid failures are deferred for review rather than marked complete or automatically charged again.
-
-Automatic checks run at 06:00,09:00,12:00,15:00,18:00,21:00 America/Los_Angeles with daylight-saving conversion. Minute ticks continue work only within released allowance and outside midnight–06:00. Three calls become available per slot (18 automatic daily); unused allowance carries to later slots that Pacific day. Manual scans can access the two-call reserve, up to 20 total daily, within the existing rolling-three-hour cap of 10. The monthly cap remains 600; the existing month's counter is preserved. The UI limits a manual run to three batch steps. A step may only collect mail and use zero AI calls.
-
-Budget reservations serialize across users on the monthly usage row and are tied to an immutable job ID. Calls with unknown billing outcomes remain counted. Email payloads, batch answers and receipts are server-only, with authenticated clients receiving aggregate queue/cost reports for their own account. Completed job payloads are cleared after publication. Manual review items link to Gmail; no email is sent, edited or deleted.
-
-Cost reporting starts with this release, excludes old unmetered calls, website searches and other services, and explicitly counts requests whose usage is unavailable. Standard gpt-4.1-mini text prices checked 2026-10-10: input $0.40, cached input $0.10, output $1.60 per million tokens (https://developers.openai.com/api/docs/models/gpt-4.1-mini). These are estimates, not an invoice. Rates are versioned in batches.ts and must be refreshed if the provider changes prices/model.
-
-Apply 20261012000000_sot_batches.sql before publishing the function/UI. No business records or pending suggestions are removed. Old section checkpoints remain for recovery but are no longer resumed. Deferred messages are not counted as reviewed, and no-new-suggestions is never presented as proof of an empty backlog. Multiple mailbox budgets are shared; usage and observed backlog must guide future allocation changes.
+Tests exercise migrations, permissions, approvals, retries, evidence validation, budget helpers and regressions. They do not establish live model accuracy or reproduce concurrent production database sessions. Release checks require a current backup, all migrations through `20261013000000_audit_reliability.sql`, matching SOT function files, and the frontend. See [deployment](../DEPLOY.md). Do not substitute a successful frontend build for a server type check or live verification.

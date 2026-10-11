@@ -1,10 +1,10 @@
+import { allPages, relevantWork } from './context.ts';
 import { cleanMessages, byteSize } from './sections.ts';
 import { packRelated, pacificHour, tokenCost, BATCH_RULES } from './batches.ts';
-import { supportedProposal, quoted, duplicateWork, proposalIdentity, canonical } from './truth.ts';
-import { resolveProject } from './projects.ts';
-import { clientChecklist, clientContext, websiteRequest, websiteResult } from './identity.ts';
+import {validateBatchThread} from './validation.ts';
+import { clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
-import { addresses, agencyRelated, bounded, incrementalQuery, instructions, proposalSchema, STAFF_ROLES, STARTING_MAILBOX, validProposal, type Proposal } from './core.ts';
+import { addresses, agencyRelated, bounded, incrementalQuery, instructions, proposalSchema, STAFF_ROLES, STARTING_MAILBOX } from './core.ts';
 const env = (name: string) => Deno.env.get(name) || '';
 const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), {auth:{persistSession:false,autoRefreshToken:false}});
 const app = env('SOT_APP_URL') || 'https://arrowfinder.github.io/SunRose-Dashboard/';
@@ -49,45 +49,6 @@ function body(part:any):string {
  if(parts.length) return parts.map(body).join('\n');
  return part.mimeType==='text/html'?decode(part.body?.data||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<br\s*\/?\s*>|<\/(?:p|div|li|tr)>/gi,'\n').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' '):'';
 }
-async function validateBatchThread(proposals:Proposal[],selected:any[],context:any,relationship:any,clients:any[],tasks:any[],pending:any[]){
- const contacts=addresses(selected.map(m=>m.from+" "+m.to+" "+m.cc).join(" "));const matched=relationship.matched;
-   const rows:any[]=[];
-   for(const p of proposals) {
-    if(!validProposal(p,selected.map((m:any)=>m.id),contacts)) continue;
-    if(p.kind==='client' && (p.relationship_type!=='client'||!relationship.allowNewClient)) continue;
-    if(p.kind!=='client'&&matched) {p.client_id=matched.id;p.client_name=matched.name;}
-    if(!['client','project'].includes(p.kind) && p.responsibility!=='sunrose') continue;
-    if(p.kind==='client') {p.parent_id=null;p.task_id=null;p.due_date=null;p.estimated_hours=null;}
-    if(p.client_id && relationship.candidates.length && !relationship.candidates.some((x:any)=>x.id===p.client_id))continue;
-    if(p.client_id && !clients.some((x:any)=>x.id===p.client_id&&!x.archived_at)) continue;
-    const target=p.task_id?tasks.find((t:any)=>t.id===p.task_id):null;
-    if(['update','complete'].includes(p.kind) && (!target || target.archived_at || target.client_id!==p.client_id || tasks.some((t:any)=>t.parent_id===target.id))) continue;
-    if(p.parent_id && !tasks.some((t:any)=>t.id===p.parent_id&&!t.parent_id&&t.client_id===p.client_id)) continue;
-    const source=selected.find((m:any)=>m.id===p.source_message_id);
-    if(!source||!supportedProposal(p,source))continue;
-    if(p.due_date&&!quoted(p.due_evidence,source.body))p.due_date=null;
-    if(p.estimated_hours!==null&&!quoted(p.estimate_evidence,source.body))p.estimated_hours=null;
-    if(p.kind==='project'){p.parent_id=null;p.task_id=null;p.due_date=null;p.estimated_hours=null;p.new_project_name=p.title;p.project_id=null;if(p.title.length>160)continue;}
-
-
-    const checklist=clientChecklist(p,clients,source.body);
-    if(p.kind==='client'&&!checklist.ready) continue;
-    if(p.kind!=='client'&&matched) {checklist.identity_resolved=true;checklist.matched_client_id=matched.id;}
-    if(p.kind!=='client'&&relationship.candidates.length>1) {checklist.ready=false;checklist.identity_resolved=false;checklist.possible_matches=relationship.candidates.map((c:any)=>c.id);checklist.explanation='Multiple existing clients appear in this conversation. Confirm which client owns this work.';}
-    if(!p.client_id && checklist.matched_client_id && checklist.identity_resolved) p.client_id=checklist.matched_client_id;
-    if(p.kind==='client'&&checklist.matched_client_id&&checklist.identity_resolved) continue;
-    const project=resolveProject(p,context.projects,tasks,source.body);
-    if(p.kind==='project'&&(!p.client_id||!checklist.identity_resolved||project.project_match!=='new'))continue;
-    Object.assign(p,project);
-    const duplicate=duplicateWork(p,[...tasks,...pending,...rows]);
-    if(duplicate?.exact)continue;
-    const key=p.kind==='project'?proposalIdentity(p):await hash(proposalIdentity(p));
-    const projectKey=p.new_project_name&&p.client_id?'project:'+p.client_id+':'+canonical(p.new_project_name):null;
-    rows.push({kind:p.kind,dedupe_key:key,title:p.title,description:p.description,payload:{...p,project_proposal_key:projectKey,possible_duplicate_id:duplicate?.id||null,uncertainty:[p.uncertainty,duplicate?'Possible duplicate: compare the existing work before adding.':''].filter(Boolean).join(' '),analysis_version:4,checklist,expected_updated_at:target?.updated_at||null},source_subject:source.subject,evidence:p.evidence});
-   }
-
- return rows;
-}
 
 async function scan(uid:string,manual=false) {
  const lease=crypto.randomUUID();
@@ -106,21 +67,28 @@ async function scan(uid:string,manual=false) {
    for(const t of job.snapshot.threads)checked(await db.from('sot_mail_queue').update({status:'review',reason:'An AI request was interrupted. Review is needed before retrying to avoid duplicate charges.'}).eq('user_id',uid).eq('thread_id',t.thread_id));
    checked(await db.from('sot_batch_jobs').update({status:'review',reason:'Response not saved',finished_at:new Date().toISOString()}).eq('id',job.id));job=null;
   }
-  const clientRows:any[]=checked(await db.from('clients').select('id,name,archived_at').order('created_at').limit(1000))||[];
-  const contactRows:any[]=checked(await db.from('sot_client_contacts').select('email,client_id').limit(3000))||[];
-  const profiles:any[]=checked(await db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').limit(1000))||[];
+  const clientRows:any[]=await allPages((a,b)=>db.from('clients').select('id,name,archived_at').order('id').range(a,b));
+  const contactRows:any[]=await allPages((a,b)=>db.from('sot_client_contacts').select('email,client_id').order('email').order('client_id').range(a,b));
+  const profiles:any[]=await allPages((a,b)=>db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').order('client_id').range(a,b));
   const clients=clientRows.map(c=>({...c,...profiles.find(p=>p.client_id===c.id),emails:contactRows.filter(r=>r.client_id===c.id).map(r=>r.email)}));
-  const tasks:any[]=checked(await db.from('work_items').select('id,client_id,project_id,parent_id,title,status,due_date,updated_at,archived_at').order('updated_at',{ascending:false}).limit(300))||[];
-  const projects:any[]=checked(await db.from('projects').select('id,client_id,name,description,stage').order('updated_at',{ascending:false}).limit(1000))||[];
+  let tasks:any[]=[],projects:any[]=[];
   const reviews:any[]=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
-  const pending:any[]=checked(await db.from('sot_suggestions').select('id,kind,title,description,payload,status,archived_at,source_subject,evidence').eq('user_id',uid).order('updated_at',{ascending:false}).limit(300))||[];
+  const pending:any[]=await allPages((a,b)=>db.from('sot_suggestions').select('id,kind,title,description,payload,status,archived_at,source_subject,evidence').eq('user_id',uid).order('id').range(a,b));
   const relationshipFor=(t:any)=>clientContext(addresses(t.payload.messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' ')),t.payload.messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
+  const loadContext=async(threads:any[])=>{
+   const ids=[...new Set(threads.flatMap(t=>relationshipFor(t).candidates.map((x:any)=>x.id)))];
+   if(!ids.length)return;
+   tasks=await allPages((a,b)=>db.from('work_items').select('id,client_id,project_id,parent_id,title,status,due_date,updated_at,archived_at').in('client_id',ids).order('id').range(a,b));
+   projects=await allPages((a,b)=>db.from('projects').select('id,client_id,name,description,stage').in('client_id',ids).order('id').range(a,b));
+  };
   const contextFor=(t:any)=>{
-   const rel=relationshipFor(t),ids=rel.candidates.map(x=>x.id);
+   const rel=relationshipFor(t),ids=rel.candidates.map(x=>x.id),text=t.payload.messages.map((m:any)=>m.subject+' '+m.body).join(' ');
+   const clientTasks=tasks.filter(x=>ids.includes(x.client_id)),clientProjects=projects.filter(x=>ids.includes(x.client_id));
    return {mailbox:c.email,allow_new_client:rel.allowNewClient,matched_client:rel.matched?.id||null,client_candidates:ids,
     clients:(ids.length?clients.filter(x=>ids.includes(x.id)):clients).slice(0,80).map(x=>({...x,description:bounded(x.description||'',400),services:bounded(x.services||'',400),context_notes:bounded(x.context_notes||'',1200)})),
-    projects:projects.filter(x=>ids.includes(x.client_id)).slice(0,30).map(x=>({...x,description:bounded(x.description||'',400)})),
-    tasks:tasks.filter(x=>ids.includes(x.client_id)).slice(0,60),
+    projects:relevantWork(clientProjects,text,30).map(x=>({...x,description:bounded(x.description||'',400)})),
+    tasks:relevantWork(clientTasks,text,60),
+    omitted_context:{tasks:Math.max(0,clientTasks.length-60),projects:Math.max(0,clientProjects.length-30)},
     unconfirmed_suggestions:pending.filter(x=>ids.includes(x.payload.client_id)).slice(0,20).map(x=>({id:x.id,kind:x.kind,status:x.status,title:x.title,client_id:x.payload.client_id,project_id:x.payload.project_id})),
     review_history:reviews.filter(x=>x.client_name===rel.matched?.name).slice(0,12)};
   };
@@ -130,47 +98,54 @@ async function scan(uid:string,manual=false) {
    const stale=c.collection_started&&Date.now()-Date.parse(c.collection_started)>3*3600000;
    const started=!stale&&c.collection_started?c.collection_started:new Date().toISOString();
    const floor=new Date(Math.max(Date.parse(c.scan_floor),Date.parse(c.collected_through||started)-7*86400000)).toISOString();
-   const query=new URLSearchParams({q:incrementalQuery(c.email,started,c.collected_through,floor),maxResults:'5'});
+   const query=new URLSearchParams({q:incrementalQuery(c.email,started,c.collected_through,floor),maxResults:'3'});
    if(c.collection_cursor&&!stale)query.set('pageToken',c.collection_cursor);
    const list=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads?'+query,{headers});
    // Bound collection work per invocation. Its cursor never depends on completing AI work.
-   for(const ref of list.threads||[]){
+   const retries:any[]=checked(await db.from('sot_fetch_retries').select('thread_id,scan_after').eq('user_id',uid).order('last_failed_at').limit(2))||[];
+   const refs=[...new Map([...retries.map(r=>({id:r.thread_id})),...(list.threads||[])].map(r=>[r.id,r])).values()];
+   for(const ref of refs){
     let thread:any;
     try {thread=await fetchJSON('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+encodeURIComponent(ref.id)+'?format=full',{headers});}
-    catch {checked(await db.from('sot_mail_queue').upsert({user_id:uid,thread_id:ref.id,fingerprint:'unread',payload:{},status:'review',reason:'Email could not be retrieved; reconnect or review in Gmail.',oldest_at:started}));continue;}
+    catch {checked(await db.rpc('sot_record_fetch_failure',{uid,thread:ref.id,since_time:floor}));continue;}
+    const clearRetry=async()=>checked(await db.from('sot_fetch_retries').delete().eq('user_id',uid).eq('thread_id',ref.id));
     const raw=(thread.messages||[]).filter((m:any)=>Number(m.internalDate)>=Date.parse(started)-90*86400000&&Number(m.internalDate)<Date.parse(started)&&!m.labelIds?.some((l:string)=>['TRASH','SPAM','DRAFT'].includes(l))).map((m:any)=>{
      const h=(n:string)=>m.payload?.headers?.find((x:any)=>x.name.toLowerCase()===n)?.value||'';
      return {id:m.id,messageId:h('message-id')||m.id,date:new Date(Number(m.internalDate)).toISOString(),from:h('from'),to:h('to'),cc:h('cc'),subject:h('subject'),body:body(m.payload||{})};
     }).filter((m:any)=>agencyRelated(m,c.email));
-    if(!raw.length)continue;
+    if(!raw.length){await clearRetry();continue;}
     const fingerprint=await hash(JSON.stringify({messages:raw,engine:'sections-v5'}));
+    const old:any=checked(await db.from('sot_mail_queue').select('fingerprint,status,payload,oldest_at,resolved_through').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
+    if(old?.fingerprint===fingerprint&&(old.status==='done'||old.payload.messages?.length)){await clearRetry();continue;}
     const cache:any=checked(await db.from('sot_scan_cache').select('fingerprint').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
     const legacy=await hash(JSON.stringify({messages:raw.map((m:any)=>({...m,body:bounded(m.body,9000)})).slice(-12),engine:'truth-v4'}));
-    if(cache?.fingerprint===fingerprint||cache?.fingerprint===legacy){
+    if(!old&&(cache?.fingerprint===fingerprint||cache?.fingerprint===legacy)){
      const known=cache?.fingerprint===fingerprint?raw:raw.slice(-12);
-     checked(await db.from('sot_message_receipts').upsert(known.map((m:any)=>({user_id:uid,message_id:m.id})),{onConflict:'user_id,message_id',ignoreDuplicates:true}));continue;
+     checked(await db.from('sot_message_receipts').upsert(known.map((m:any)=>({user_id:uid,message_id:m.id})),{onConflict:'user_id,message_id',ignoreDuplicates:true}));await clearRetry();continue;
     }
-    const old:any=checked(await db.from('sot_mail_queue').select('fingerprint,status,payload,oldest_at').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
-    if(old?.fingerprint===fingerprint)continue;
     const receipts:any[]=checked(await db.from('sot_message_receipts').select('message_id').eq('user_id',uid).in('message_id',raw.map((m:any)=>m.id)))||[];
     const seen=new Set(receipts.map(r=>r.message_id));
     // Collection watermark is deliberately separate from analysis receipts. Queued mail never expires out of review.
     let after=c.collected_through?Math.max(Date.parse(floor),Date.parse(c.collected_through)-86400000):Math.max(Date.parse(floor),Date.parse(started)-7*86400000);
     if(old?.status==='review')after=Math.min(after,Date.parse(old.oldest_at));
+    const retry=retries.find(r=>r.thread_id===ref.id);if(retry)after=Math.min(after,Date.parse(retry.scan_after));
+    if(old?.resolved_through)after=Math.max(after,Date.parse(old.resolved_through));
     const cleaned=cleanMessages(raw);
     let messages=cleaned.filter((m:any)=>!seen.has(m.id)&&Date.parse(m.date)>=after&&Date.parse(m.date)<Date.parse(started));
-    messages=[...new Map([...(old?.status==='ready'?old.payload.messages||[]:[]),...messages].filter((m:any)=>!seen.has(m.id)).map((m:any)=>[m.id,m])).values()].sort((a:any,b:any)=>a.date.localeCompare(b.date));
-    if(!messages.length)continue;
+    messages=[...new Map([...(old?.payload.messages||[]),...messages].filter((m:any)=>!seen.has(m.id)).map((m:any)=>[m.id,m])).values()].sort((a:any,b:any)=>a.date.localeCompare(b.date));
+    if(!messages.length){await clearRetry();continue;}
     const older=cleaned.filter((m:any)=>Date.parse(m.date)<Date.parse(messages[0].date)).at(-1);
     const payload={messages,older_context:older?{subject:older.subject,body:bounded(older.body,1500),context_only:true}:null};
     const large=byteSize(payload)>10000;
-    checked(await db.from('sot_mail_queue').upsert({user_id:uid,thread_id:ref.id,fingerprint,payload:large?{subject:messages[0].subject}:payload,status:large?'review':'ready',reason:large?'Too much new text for automatic review. Open the conversation in Gmail to identify focused work.':null,oldest_at:messages[0].date,updated_at:new Date().toISOString()}));
+    checked(await db.from('sot_mail_queue').upsert({user_id:uid,thread_id:ref.id,fingerprint,payload,status:large||old?.status==='review'?'review':'ready',reason:large?'Select a smaller group of messages to retry, or review in Gmail and resolve manually.':old?.status==='review'?'Conversation updated; review before retrying analysis.':null,focus_message_ids:null,oldest_at:messages[0].date,updated_at:new Date().toISOString()}));
+    await clearRetry();
    }
    collecting=!!list.nextPageToken;
    checked(await db.from('sot_connections').update({collection_started:collecting?started:null,collection_cursor:list.nextPageToken||null,collected_through:collecting?c.collected_through:started}).eq('user_id',uid));
    const queued:any[]=checked(await db.from('sot_mail_queue').select('*').eq('user_id',uid).eq('status','ready').order('oldest_at').limit(40))||[];
    // Never batch different clients or ambiguous identities together. FIFO prevents old ready work from starving.
-   const ready=queued.map(t=>({...t,group:relationshipFor(t).matched?.id||'thread:'+t.thread_id}));
+   const ready=queued.map(t=>({...t,payload:{...t.payload,messages:t.focus_message_ids?t.payload.messages.filter((m:any)=>t.focus_message_ids.includes(m.id)):t.payload.messages}})).map(t=>({...t,group:relationshipFor(t).matched?.id||'thread:'+t.thread_id}));
+   await loadContext(ready);
    const packed=packRelated(ready,contextFor);
    if(packed?.oversized)checked(await db.from('sot_mail_queue').update({status:'review',reason:'Context and message exceed the safe batch size; focused review needed.'}).eq('user_id',uid).eq('thread_id',packed.oversized.thread_id));
    if(packed?.input&&allowance.available>0){
@@ -200,18 +175,20 @@ async function scan(uid:string,manual=false) {
    }
   }
   if(job?.status==='answered'){
-   const results=[];
+   await loadContext(job.snapshot.threads);
+   const results=[];const batchRows:any[]=[];
    for(const t of job.snapshot.threads){
     const ids=new Set(t.message_ids),proposals=job.response.filter((p:any)=>ids.has(p.source_message_id));
-    const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,pending);
+    const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,[...pending,...batchRows]);
+    batchRows.push(...rows);
     results.push({thread_id:t.thread_id,fingerprint:t.fingerprint,proposals:rows});
    }
    made=checked(await db.rpc('sot_finish_batch',{job:job.id,results}));
   }
   const report:any=checked(await db.rpc('sot_queue_report',{uid}));allowance=await budget();
   const more=!paused&&allowance.available>0&&(collecting||report.waiting>0);
-  const status=paused?'budget_paused':more?'running':report.needs_review?'follow_up':report.waiting?'budget_paused':collecting?'collecting':'complete';
-  checked(await db.from('sot_connections').update({scan_report:report,scan_status:status,last_error:report.needs_review?`${report.needs_review} conversations need focused review.`:null,deferred_threads:report.needs_review,scanned_threads:report.reviewed_messages,section_progress:null,next_scan_at:more||collecting?new Date(Date.now()+60000).toISOString():allowance.next_check,...(!collecting&&!report.waiting&&!report.needs_review?{last_completed_at:new Date().toISOString(),last_scan_at:new Date().toISOString()}: {})}).eq('user_id',uid));
+  const status=paused?'budget_paused':more?'running':(report.needs_review||report.fetch_retries)?'follow_up':report.waiting?'budget_paused':collecting?'collecting':'complete';
+  checked(await db.from('sot_connections').update({scan_report:report,scan_status:status,last_error:report.needs_review?`${report.needs_review} conversations need focused review.`:null,deferred_threads:report.needs_review,scanned_threads:report.reviewed_messages,section_progress:null,next_scan_at:more||collecting?new Date(Date.now()+60000).toISOString():allowance.next_check,...(!collecting&&!report.waiting&&!report.needs_review&&!report.fetch_retries?{last_completed_at:new Date().toISOString(),last_scan_at:new Date().toISOString()}: {})}).eq('user_id',uid));
   return {more,created:made,deferred:report.needs_review,waiting:report.waiting,budget:allowance};
  }catch(error){
   const b:any=checked(await db.rpc('sot_budget',{manual}));

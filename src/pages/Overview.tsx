@@ -1,3 +1,4 @@
+import {ReviewInbox} from "../components/ReviewInbox";
 import {ProjectAssignmentNotice} from "../components/ProjectRequired";
 import { projectLabel } from "../lib/projectAssignment";
 import { DueDateEditor } from "../components/DueDateEditor";
@@ -42,7 +43,7 @@ export function Overview() {
           </div></li>;
         })}</ul>}
     </section>
-    <SotReview />
+    <ReviewInbox/><SotReview />
     <section aria-label="All clients calendar"><CalendarPage embedded /></section>
   </div>;
 }

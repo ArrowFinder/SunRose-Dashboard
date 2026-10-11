@@ -2,7 +2,7 @@ import { byteSize } from './sections.ts';
 export const BATCH_BYTES=16000;
 export function pacificHour(now:Date){return Number(new Intl.DateTimeFormat('en-US',{timeZone:'America/Los_Angeles',hour:'numeric',hourCycle:'h23'}).format(now));}
 export function batchPacket(threads:any[],context:any){
- const copy=structuredClone(context);copy.omitted_context={};
+ const copy=structuredClone(context);copy.omitted_context=copy.omitted_context||{};
  const packet={context:copy,conversations:threads.map(t=>({thread_id:t.thread_id,messages:t.payload.messages.map(({id,...m}:any)=>({...m,source_message_id:id})),older_context:t.payload.older_context}))};
  for(const key of ['unconfirmed_suggestions','review_history','tasks','projects','clients']){
   while(byteSize(packet)>BATCH_BYTES&&copy[key]?.length>(key==='clients'?1:0)){copy[key].pop();copy.omitted_context[key]=(copy.omitted_context[key]||0)+1;}
