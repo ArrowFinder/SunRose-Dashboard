@@ -1,3 +1,4 @@
+import { WorkEditor } from './WorkEditor';
 import { isAssignedProject } from "../lib/projectAssignment";
 import { useEffect, useState } from "react";
 import type { WorkItem } from "../lib/types";
@@ -29,7 +30,12 @@ type Props = {
   assignableUsers: User[];
 };
 
-export function WorkItemModal({
+export function WorkItemModal(props:Props) {
+ const {cloud}=useAppState();
+ if(cloud)return props.open?<WorkEditor onClose={props.onClose} task={props.initial} parentTask={props.parentTask} clientId={props.clientId} projectId={props.defaultProjectId} yearMonth={props.defaultYearMonth} onTaskSave={props.onSave} allowTemplate={props.allowSaveAsTemplate}/>:null;
+ return <LocalWorkItemModal {...props}/>;
+}
+function LocalWorkItemModal({
   open,
   onClose,
   onSave,

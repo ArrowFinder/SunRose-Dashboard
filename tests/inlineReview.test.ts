@@ -75,3 +75,37 @@ test('team setup rejects non-managers and existing accounts; matching retries pr
  await as(owner,'select finish_team_setup($1,$2,$3)',[owner,request,uid],'service_role');
  assert.equal((await db.query<any>('select role from profiles where id=$1',[uid])).rows[0].role,'supervisor');
 });
+test('shared editor reclassifies suggestions to subtasks and preserves all entered task fields',async()=>{
+ const s=await proposal(owner,'project','editor-subtask',{analysis_version:4,client_id:c.id,client_name:'Audit client',checklist:{identity_resolved:true}},'Editable work');
+ const fields={title:'Review assets',description:'Edited scope',client_id:c.id,project_id:p.id,parent_id:task,assigned_user_id:employee,due_date:'2026-11-04',estimated_hours:2.5,year_month:'2026-11',status:'planned',client_visible:true};
+ const sql='select sot_editor_submit($1,$2,$3,$4) id';
+ const id=(await as(owner,sql,[s.id,s.updated_at,'subtask',fields]))[0].id;
+ const row=(await db.query<any>('select * from work_items where id=$1',[id])).rows[0];
+ assert.equal(row.parent_id,task);assert.equal(row.project_id,p.id);assert.equal(row.assigned_user_id,employee);assert.equal(row.year_month,'2026-11');assert.equal(row.status,'planned');assert.equal(row.client_visible,true);
+ assert.equal((await as(owner,sql,[s.id,s.updated_at,'task',{...fields,title:'Retry must not rewrite'}]))[0].id,id);
+ assert.equal((await db.query<any>('select title from work_items where id=$1',[id])).rows[0].title,'Review assets');
+});
+test('shared editor can turn a task suggestion into a project with billing and dates, atomically',async()=>{
+ const s=await proposal(owner,'task','editor-project',{client_id:c.id,client_name:'Audit client',checklist:{identity_resolved:true}},'Conference');
+ const fields={title:'November conference',description:'All conference deliverables',client_id:c.id,stage:'active',billing_type:'fixed_fee',fee:400,hour_budget:8,start_date:'2026-11-01',due_date:'2026-11-04'};
+ const id=(await as(owner,'select sot_editor_submit($1,$2,$3,$4) id',[s.id,s.updated_at,'project',fields]))[0].id;
+ const row=(await db.query<any>('select * from projects where id=$1',[id])).rows[0];assert.equal(row.stage,'active');assert.equal(Number(row.fee),400);assert.equal(row.description,fields.description);
+ assert.equal((await db.query<any>('select count(*)::int n from work_items where title=$1',[fields.title])).rows[0].n,0);
+ const invalid=await proposal(employee,'task','editor-not-owner',{client_id:c.id},'No access');
+ await assert.rejects(as(employee,'select sot_editor_submit($1,$2,$3,$4)',[invalid.id,invalid.updated_at,'project',fields]),/Owner or admin/);
+ await assert.rejects(as(other,'select sot_editor_submit($1,$2,$3,$4)',[invalid.id,invalid.updated_at,'task',fields]),/not found/);
+ assert.equal((await db.query<any>('select kind from sot_suggestions where id=$1',[invalid.id])).rows[0].kind,'task');
+});
+test('existing leaf work can change parent while keeping identity; nested trees and running clocks stay protected',async()=>{
+ const leaf=(await db.query<any>("insert into work_items(client_id,project_id,title,year_month) values($1,$2,'Move me','2026-11') returning id",[c.id,p.id])).rows[0].id;
+ await db.query(`insert into time_entries(work_item_id,user_id,started_at,ended_at,duration_minutes) values($1,$2,now()-interval '2 hours',now()-interval '1 hour',60)`,[leaf,owner]);
+ const originalTime=(await db.query<any>('select * from time_entries where work_item_id=$1',[leaf])).rows[0];
+ await as(owner,'update work_items set parent_id=$2 where id=$1',[leaf,task]);
+ assert.equal((await db.query<any>('select parent_id from work_items where id=$1',[leaf])).rows[0].parent_id,task);
+ await assert.rejects(as(owner,'update work_items set parent_id=$2 where id=$1',[task,leaf]),/subtasks|level/);
+ await as(owner,'update work_items set parent_id=null where id=$1',[leaf]);
+ await db.query('insert into active_timers(user_id,work_item_id,started_at) values($1,$2,now())',[owner,leaf]);
+ await assert.rejects(as(owner,'update work_items set parent_id=$2 where id=$1',[leaf,task]),/clocks/);
+ await db.query('delete from active_timers where user_id=$1',[owner]);
+ assert.deepEqual((await db.query<any>('select * from time_entries where work_item_id=$1',[leaf])).rows[0],originalTime);
+});

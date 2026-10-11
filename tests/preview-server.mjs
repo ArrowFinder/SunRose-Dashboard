@@ -66,7 +66,7 @@ const allowed = new Set([
   "active_timers",
 ]);
 const rpc = new Set([
-  "sot_review_submit","review_create_client","review_create_project",
+  "sot_editor_submit","sot_review_submit","review_create_client","review_create_project",
   "sot_review_messages","sot_recover_thread","review_client_request","sot_project_approvals","sot_accept_project",
   "save_time_log","start_project_timer","payroll_data","set_staff_pay_rate","create_pay_period","change_pay_period","support_user_snapshot","sot_edit_and_accept","sot_approve_project_and_task",
   "member_client_view",
