@@ -2,11 +2,11 @@ import {createTeammate} from './team.ts';
 import { allPages, relevantWork } from './context.ts';
 import { cleanMessages, byteSize } from './sections.ts';
 import { pacificHour, tokenCost } from './batches.ts';
-import {conversationPacket,restoreSourceIds,hasQueuedMessages,prioritizeConversations,CONVERSATION_RULES} from './conversations.ts';
+import {conversationPacket,restoreSourceIds,hasQueuedMessages,prioritizeConversations,conversationSchema,conversationInstructions} from './conversations.ts';
 import {validateBatchThread} from './validation.ts';
 import { clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
-import { addresses, agencyRelated, bounded, incrementalQuery, instructions, proposalSchema, STAFF_ROLES, STARTING_MAILBOX } from './core.ts';
+import { addresses, agencyRelated, bounded, incrementalQuery, STAFF_ROLES, STARTING_MAILBOX } from './core.ts';
 const env = (name: string) => Deno.env.get(name) || '';
 const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), {auth:{persistSession:false,autoRefreshToken:false}});
 const app = env('SOT_APP_URL') || 'https://arrowfinder.github.io/SunRose-Dashboard/';
@@ -165,7 +165,7 @@ async function scan(uid:string,manual=false) {
    else {
     job.status='reserved';
     try {
-     const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:instructions+'\n'+CONVERSATION_RULES,input:job.snapshot.input,max_output_tokens:6000,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:job.snapshot.aliases?{...proposalSchema,properties:{suggestions:{...proposalSchema.properties.suggestions,items:{...proposalSchema.properties.suggestions.items,properties:{...proposalSchema.properties.suggestions.items.properties,source_message_id:{type:'string',enum:job.snapshot.aliases.map((a:any)=>a.alias)}}}}}}:proposalSchema}}})});
+     const response=await fetchJSON('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env('OPENAI_API_KEY'),'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1-mini',store:false,instructions:conversationInstructions(job.snapshot),input:job.snapshot.input,max_output_tokens:6000,text:{format:{type:'json_schema',name:'sot_suggestions',strict:true,schema:conversationSchema(job.snapshot)}}})});
      const usage=tokenCost(response.usage);
      checked(await db.from('sot_batch_jobs').update(usage).eq('id',job.id));
      if(response.status!=='completed')throw new Error('Incomplete AI answer');

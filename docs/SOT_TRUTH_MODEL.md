@@ -68,3 +68,13 @@ Tests exercise migrations, permissions, approvals, retries, evidence validation,
 Size-only legacy deferrals return to automatic processing. Uncertain paid failures remain available for deliberate recovery. Existing budgets and identity/evidence checks remain in force.
 
 Repair validation notes: confirmed-client conversations take priority over unrelated mail, then newest messages first. Evidence comparison ignores email reply-prefix formatting and typographic quote variants, but still requires the same contiguous words. Diagnostics record rejection codes, lengths and boolean validation flags, never proposal or email contents.
+
+## October 11 live repair
+
+The combined conversation pass now applies the task-pass instructions and excludes `client` from the response schema whenever an existing-client relationship is present. Contact and source identifiers are constrained to supplied values. The response contract requires contiguous source quotes and real task IDs for updates/completions.
+
+A new task may represent outstanding or ongoing unfinished work; completed, cancelled and unknown work remain excluded. Its primary evidence must occur in its cited message. Project, deadline and estimate evidence can come from another supplied message in the same conversation, but each must still match a real passage. This lets a later request retain the project context established earlier in the thread.
+
+The temporary October 11 repair-call exception and private diagnostic copies are operational debugging only, not permanent budget or retention policy changes.
+
+SOT suggestions remain proposals for the user, not automatic decisions. Inferred preparation work from a meeting invitation remains reviewable, with a visible caution that preparation was not explicitly requested. Users choose Add, Edit before adding, or Delete. Valid evidence and identity checks still distinguish the email's actual facts from inferred scope.

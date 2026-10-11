@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {supportedProposal,duplicateWork,proposalIdentity,quoted} from '../supabase/functions/sot/truth.ts';
+import {supportedProposal,duplicateWork,proposalIdentity,quoted,suggestionCaution} from '../supabase/functions/sot/truth.ts';
 import type {Proposal} from '../supabase/functions/sot/core.ts';
 const p:Proposal={kind:'task',title:'Review the Inspirational Women press release',description:'Review requested copy',client_name:'LA Times Studios',client_id:'lat',contact_email:'client@latimes.com',parent_id:null,task_id:null,project_id:'iw',new_project_name:null,due_date:null,estimated_hours:null,evidence:'Please review the press release.',source_message_id:'m1',work_state:'outstanding'};
 test('actual quotations are required, not invented or footer-only evidence',()=>{
@@ -34,4 +34,19 @@ test('email reply markers and typographic quotes preserve exact evidence without
  assert.ok(quoted("Please review the client's November email copy.",body));
  assert.equal(quoted("Please approve the client's November email copy.",body),false);
  assert.equal(quoted("Please review the client's email copy.",body),false);
+});
+
+test('ongoing unfinished work can be suggested, but cancelled ongoing work cannot',()=>{
+ assert.ok(supportedProposal({...p,work_state:'ongoing'},{subject:'',body:p.evidence}));
+ assert.equal(supportedProposal({...p,work_state:'ongoing',evidence:'The campaign is cancelled.'},{subject:'',body:'The campaign is cancelled.'}),false);
+});
+
+test('inferred interview preparation remains reviewable with an explicit caution',()=>{
+ const evidence='This virtual interview, lasting 30 minutes, is for the open Marketing Manager position.';
+ const proposal={...p,title:'Prepare interview support materials',description:'Prepare briefing materials.',evidence};
+ assert.ok(supportedProposal(proposal,{subject:'Interview invitation',body:evidence}));
+ assert.match(suggestionCaution(proposal),/does not explicitly request/);
+ const requested='Please prepare interview questions for Monday.';
+ assert.ok(supportedProposal({...proposal,evidence:requested},{subject:'Interview preparation',body:requested}));
+ assert.equal(suggestionCaution({...proposal,evidence:requested}),'');
 });

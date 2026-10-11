@@ -1,3 +1,4 @@
+import {addresses,proposalSchema,passInstructions,instructions} from './core.ts';
 import {byteSize, sectionMessages} from './sections.ts';
 // Prefer one complete conversation. Only large conversations need checkpoints.
 export function conversationSections(messages:any[]) {
@@ -28,4 +29,27 @@ export function hasQueuedMessages(row:any){return Array.isArray(row.payload?.mes
 
 export function prioritizeConversations(rows:any[],hasClient:(row:any)=>boolean){
  return [...rows].sort((a,b)=>Number(hasClient(b))-Number(hasClient(a))||Math.max(...b.payload.messages.map((m:any)=>Date.parse(m.date)))-Math.max(...a.payload.messages.map((m:any)=>Date.parse(m.date))));
+}
+
+// Restrict new-client output at the API boundary, rather than paying for a known-invalid proposal.
+export function conversationSchema(snapshot:any){
+ if(!snapshot.aliases?.length)return proposalSchema;
+ const packet=JSON.parse(snapshot.input);
+ const contacts=addresses(packet.messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' '));
+ const properties={...proposalSchema.properties.suggestions.items.properties,
+  kind:{type:'string',enum:packet.context.allow_new_client===false?['project','task','update','complete']:['client','project','task','update','complete']},
+  source_message_id:{type:'string',enum:snapshot.aliases.map((a:any)=>a.alias)},
+  evidence:{type:'string',description:'One exact contiguous quote of 8 to 600 characters from the cited message body. Copy text only: no surrounding quotation marks, source labels, commentary, or added ellipses.'},
+  ...(contacts.length?{contact_email:{type:'string',enum:contacts}}:{})};
+ return {...proposalSchema,properties:{suggestions:{...proposalSchema.properties.suggestions,items:{...proposalSchema.properties.suggestions.items,properties}}}};
+}
+export function conversationInstructions(snapshot:any){
+ const packet=JSON.parse(snapshot.input);
+ return (packet.context.allow_new_client===false?passInstructions('tasks'):instructions)+'\n'+CONVERSATION_RULES+`
+OUTPUT CONTRACT: Return only actionable suggestions, never a summary of the correspondence. A meeting/interview invitation does not confirm a request for preparation materials. If you suggest preparation as a useful possibility, clearly state in uncertainty that it is inferred and needs the user's decision. Do not present inferred scope as an explicit client request.
+For unfinished tasks use work_state=outstanding (not started) or ongoing (in progress), responsibility=sunrose and task_id=null. A request directed to Sierra or SunRose is SunRose work, including an explicit request for help within a larger client-owned activity. Do not claim the client's entire activity as Sierra's task. Omit work assigned only to others.
+For update use work_state=changed and a real supplied task_id. For complete use work_state=completed and a real supplied task_id. If no matching task exists, do not invent an update record.
+For project use work_state=ongoing and a separate, evidenced initiative. Never suggest a known client as a new client.
+The main evidence field must copy ONE contiguous excerpt from the cited message. Project, date and estimate evidence may quote an earlier supplied message in this same conversation. Each excerpt must be copied exactly, without surrounding quotation marks, source labels, narrative, paraphrasing or added ellipses. Put explanations in description or uncertainty instead. Keep evidence under 600 characters. Optional unsupported fields must be null. Example: body 'Please draft the November email copy.' supports evidence 'Please draft the November email copy.'; it does not support evidence 'The client asked for November copy (email_1)'.
+Before returning, check the latest replies for completion/cancellation, and existing tasks for duplicates. An empty suggestions array is correct if no qualifying work remains.`;
 }
