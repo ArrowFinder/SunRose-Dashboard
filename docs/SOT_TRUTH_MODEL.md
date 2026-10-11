@@ -43,27 +43,25 @@ Previously discarded evidence cannot be reconstructed from an empty queue row. L
 | Control | Value |
 |---|---|
 | Automatic slots | 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 America/Los_Angeles |
-| Quiet hours | Midnight–06:00 Pacific; manual checks may use available reserve |
-| Released allowance | 3 additional calls per slot; unused allowance carries within that Pacific day |
-| Automatic daily maximum | 18 |
-| Manual reserve | 2 additional calls, within the total daily maximum |
-| Total daily maximum | 20; resets at Pacific midnight |
-| Rolling maximum | 10 calls in three hours |
-| Monthly analysis maximum | Configured cap; default 600; resets on UTC month boundary |
-| Website lookup | Separate maximum of 40 searches per UTC month |
+| Quiet hours | Midnight–06:00 Pacific; manual checks may use the shared window allowance |
+| Scheduled-window ceiling | $1, shared by automatic continuations and manual checks |
+| Monthly warning | $10 of tracked costs plus outstanding holds |
+| Monthly email-analysis ceiling | $15; resets on the UTC calendar-month boundary |
+| Call-count limits | No daily, rolling, or monthly call-count gate for batch analysis; counters remain diagnostic |
+| Website lookup | Separate maximum of 40 searches per UTC month; outside email-analysis spending |
 | Budget ownership | Shared across all connected users, not per employee |
 
-A minute-based dispatcher selects due connections and continues queued work within the released allowance. A manual button run performs up to three steps. Connecting a mailbox may initiate a manual scan. Failed/uncertain reserved requests count. Atomic reservations serialize on the monthly usage row and reserve a job only once.
+A minute-based dispatcher selects due connections and continues queued work within the dollar allowance. A manual button run performs up to three steps. Connecting a mailbox may initiate a manual scan. Manual checks share the current scheduled window rather than opening a new $1 allowance. Before 06:00, a manual check uses the previous 21:00 window. Queued work remains saved if a limit prevents another request; a dollar budget cannot guarantee every queue clears.
 
-These are call limits, not a dollar spending guarantee. The 600-call cap takes precedence over the daily allowance: using 20 calls on all 31 days would require 620. More connected mailboxes share capacity and may increase waiting time. No audit fix increases these limits or starts a paid scan.
+Each paid batch atomically reserves $0.50 before dispatch, using the monthly usage row lock and a once-only job reservation. This exceeds the maximum GPT-4.1-mini input-context cost plus the configured 6,000 output tokens at the versioned rates. Reported cost replaces the hold; failed or unpriced requests retain it. A request is blocked unless both the remaining window and month can cover the whole hold, so scanning can pause below the nominal ceiling. If the model, context size, output limit or pricing changes, review the reservation amount before deployment.
 
-Cost estimates use the versioned rates in `supabase/functions/sot/batches.ts`. They cover reported token usage since batching began, exclude old unmetered requests, website lookups and other services, and expose the number of requests without reported usage. They are not an invoice.
+Monthly accounting includes recorded email-analysis costs from earlier in the month, including the October 11 catch-up. Historical requests without cost reporting or a reservation are explicitly excluded; they cannot be reconstructed as zero-cost usage. Costs are estimates based on `supabase/functions/sot/batches.ts`, not a provider invoice. Website lookups and other services are excluded. The $15 ceiling therefore applies to tracked email analysis, not the entire provider account. Settings are private server-side data; only service-role budget RPCs can reserve spending.
 
 ## Security and verification
 
 OAuth refresh credentials are encrypted server-side. Gmail permission is read-only. App requests verify active staff authentication; the Google callback uses hashed, single-use, expiring state. Queue payloads, job answers and receipts are not readable through authenticated table access. Review operations are scoped to the signed-in mailbox; owner project review is separately authorized and audited. Completed job payloads are cleared.
 
-Tests exercise migrations, permissions, approvals, retries, evidence validation, budget helpers and regressions. They do not establish live model accuracy or reproduce concurrent production database sessions. Release checks require a current backup, all migrations through `20261013000000_audit_reliability.sql`, matching SOT function files, and the frontend. See [deployment](../DEPLOY.md). Do not substitute a successful frontend build for a server type check or live verification.
+Tests exercise migrations, permissions, approvals, retries, evidence validation, budget helpers and regressions. They do not establish live model accuracy or reproduce concurrent production database sessions. Release checks require a current backup, all migrations through `20261015000000_sot_dollar_budget.sql`, matching SOT function files, and the frontend. See [deployment](../DEPLOY.md). Do not substitute a successful frontend build for a server type check or live verification.
 
 Size-only legacy deferrals return to automatic processing. Uncertain paid failures remain available for deliberate recovery. Existing budgets and identity/evidence checks remain in force.
 
