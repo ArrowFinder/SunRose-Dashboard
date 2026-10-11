@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {conversationSections,conversationPacket,restoreSourceIds} from '../supabase/functions/sot/conversations.ts';
+import {conversationSections,conversationPacket,restoreSourceIds,hasQueuedMessages} from '../supabase/functions/sot/conversations.ts';
 const message=(id:string,body:string)=>({id,date:'2026-10-11T10:00:00Z',from:'client@example.test',to:'sierra@sunrosecreative.com',body});
 test('ordinary conversations remain complete and source IDs round trip',()=>{
  const messages=[message('gmail-a','Please draft the launch copy.'),message('gmail-b','Cancel the launch copy request.')];
@@ -15,4 +15,9 @@ test('long thread splits without losing text and carries candidates until final 
  const packet=conversationPacket({payload:{messages,analysis:{index:1,candidates:[{source_message_id:'long',title:'Draft copy'}]}}},{clients:[]});
  assert.equal(packet.index,1);assert.equal(JSON.parse(packet.input).previous_candidates[0].source_message_id,'email_1');assert.ok(Buffer.byteLength(packet.input)<=64000);
  const final=conversationPacket({payload:{messages,analysis:{index:sections.length-1,candidates:[]}}},{clients:[]});assert.equal(JSON.parse(final.input).section.final,true);
+});
+
+test('legacy empty queue rows cannot enter analysis',()=>{
+ for(const payload of [null,{}, {messages:[]},{messages:null}])assert.equal(hasQueuedMessages({payload}),false);
+ assert.equal(hasQueuedMessages({payload:{messages:[message('a','Please write the copy.')]}}),true);
 });
