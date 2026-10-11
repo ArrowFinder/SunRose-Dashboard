@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {conversationSections,conversationPacket,restoreSourceIds,hasQueuedMessages} from '../supabase/functions/sot/conversations.ts';
+import {conversationSections,conversationPacket,restoreSourceIds,hasQueuedMessages,prioritizeConversations} from '../supabase/functions/sot/conversations.ts';
 const message=(id:string,body:string)=>({id,date:'2026-10-11T10:00:00Z',from:'client@example.test',to:'sierra@sunrosecreative.com',body});
 test('ordinary conversations remain complete and source IDs round trip',()=>{
  const messages=[message('gmail-a','Please draft the launch copy.'),message('gmail-b','Cancel the launch copy request.')];
@@ -9,15 +9,20 @@ test('ordinary conversations remain complete and source IDs round trip',()=>{
  assert.deepEqual(restoreSourceIds([{source_message_id:'email_2'}],result.aliases),[{source_message_id:'gmail-b'}]);
 });
 test('long thread splits without losing text and carries candidates until final section',()=>{
- const messages=[message('long','work detail '.repeat(9000))];
+ const messages=[message('long','work detail '.repeat(20000))];
  const sections=conversationSections(messages);assert.ok(sections.length>1);
  const reconstructed=sections.flat().map(m=>m.body.slice(m.overlap)).join('');assert.equal(reconstructed,messages[0].body);
- const packet=conversationPacket({payload:{messages,analysis:{index:1,candidates:[{source_message_id:'long',title:'Draft copy'}]}}},{clients:[]});
- assert.equal(packet.index,1);assert.equal(JSON.parse(packet.input).previous_candidates[0].source_message_id,'email_1');assert.ok(Buffer.byteLength(packet.input)<=64000);
- const final=conversationPacket({payload:{messages,analysis:{index:sections.length-1,candidates:[]}}},{clients:[]});assert.equal(JSON.parse(final.input).section.final,true);
+ const packet=conversationPacket({payload:{messages,analysis:{format:2,index:1,candidates:[{source_message_id:'long',title:'Draft copy'}]}}},{clients:[]});
+ assert.equal(packet.index,1);assert.equal(JSON.parse(packet.input).previous_candidates[0].source_message_id,'email_1');assert.ok(Buffer.byteLength(packet.input)<=208000);
+ const final=conversationPacket({payload:{messages,analysis:{format:2,index:sections.length-1,candidates:[]}}},{clients:[]});assert.equal(JSON.parse(final.input).section.final,true);
 });
 
 test('legacy empty queue rows cannot enter analysis',()=>{
  for(const payload of [null,{}, {messages:[]},{messages:null}])assert.equal(hasQueuedMessages({payload}),false);
  assert.equal(hasQueuedMessages({payload:{messages:[message('a','Please write the copy.')]}}),true);
+});
+
+test('known client conversations get the limited calls before unrelated mail, newest client work first',()=>{
+ const rows=[{id:'newsletter',client:false,payload:{messages:[{date:'2026-10-11T10:00Z'}]}},{id:'older-client',client:true,payload:{messages:[{date:'2026-10-10T10:00Z'}]}},{id:'newer-client',client:true,payload:{messages:[{date:'2026-10-11T09:00Z'}]}}];
+ assert.deepEqual(prioritizeConversations(rows,r=>r.client).map(r=>r.id),['newer-client','older-client','newsletter']);
 });

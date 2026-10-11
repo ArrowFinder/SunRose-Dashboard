@@ -2,7 +2,7 @@ import {createTeammate} from './team.ts';
 import { allPages, relevantWork } from './context.ts';
 import { cleanMessages, byteSize } from './sections.ts';
 import { pacificHour, tokenCost } from './batches.ts';
-import {conversationPacket,restoreSourceIds,hasQueuedMessages,CONVERSATION_RULES} from './conversations.ts';
+import {conversationPacket,restoreSourceIds,hasQueuedMessages,prioritizeConversations,CONVERSATION_RULES} from './conversations.ts';
 import {validateBatchThread} from './validation.ts';
 import { clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
@@ -148,8 +148,8 @@ async function scan(uid:string,manual=false) {
    const collectedQueue:any[]=await allPages((a,b)=>db.from('sot_mail_queue').select('*').eq('user_id',uid).eq('status','ready').order('thread_id').range(a,b));
    const queued=collectedQueue.filter(hasQueuedMessages);
    for(const empty of collectedQueue.filter(t=>!hasQueuedMessages(t)))checked(await db.from('sot_mail_queue').update({status:'review',reason:'Queued content is missing; retrieve this conversation again.'}).eq('user_id',uid).eq('thread_id',empty.thread_id));
-   queued.sort((a,b)=>Math.max(...b.payload.messages.map((m:any)=>Date.parse(m.date)))-Math.max(...a.payload.messages.map((m:any)=>Date.parse(m.date))));
-   const ready=queued.map(t=>({...t,payload:{...t.payload,messages:t.focus_message_ids?t.payload.messages.filter((m:any)=>t.focus_message_ids.includes(m.id)):t.payload.messages}}));
+   const prioritized=prioritizeConversations(queued,t=>relationshipFor(t).candidates.length>0);
+   const ready=prioritized.map(t=>({...t,payload:{...t.payload,messages:t.focus_message_ids?t.payload.messages.filter((m:any)=>t.focus_message_ids.includes(m.id)):t.payload.messages}}));
    // Finish a checkpointed conversation, otherwise prioritize recent mail.
    const first=ready.find(t=>t.payload.analysis)||ready[0];
    if(first&&allowance.available>0){
@@ -187,17 +187,17 @@ async function scan(uid:string,manual=false) {
     const current=checked(await db.from('sot_mail_queue').select('payload,fingerprint').eq('user_id',uid).eq('thread_id',thread.thread_id).single());
     if(!current||current.fingerprint!==thread.fingerprint)throw new Error('Conversation changed during analysis');
     // Save checkpoint before closing the paid job. Replaying an answered job is idempotent.
-    if(current.payload.analysis?.job!==job.id)checked(await db.from('sot_mail_queue').update({payload:{...current.payload,analysis:{index:job.snapshot.index+1,candidates:job.response,job:job.id}},status:'ready'}).eq('user_id',uid).eq('thread_id',thread.thread_id));
+    if(current.payload.analysis?.job!==job.id)checked(await db.from('sot_mail_queue').update({payload:{...current.payload,analysis:{format:2,index:job.snapshot.index+1,candidates:job.response,job:job.id}},status:'ready'}).eq('user_id',uid).eq('thread_id',thread.thread_id));
     checked(await db.from('sot_batch_jobs').update({status:'complete',snapshot:{},response:null,reason:'Conversation section saved',finished_at:new Date().toISOString()}).eq('id',job.id));
    }else{
     await loadContext(job.snapshot.threads);
-    const results=[];const batchRows:any[]=[];
+    const results=[];const batchRows:any[]=[];const rejected:string[]=[];
     for(const t of job.snapshot.threads){
      const ids=new Set(t.message_ids),proposals=job.response.filter((p:any)=>ids.has(p.source_message_id));
-     const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,[...pending,...batchRows]);
+     const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,[...pending,...batchRows],rejected);
      batchRows.push(...rows);results.push({thread_id:t.thread_id,fingerprint:t.fingerprint,proposals:rows});
     }
-    checked(await db.from('sot_batch_jobs').update({reason:JSON.stringify({proposed:job.response.length,validated:batchRows.length})}).eq('id',job.id));
+    checked(await db.from('sot_batch_jobs').update({reason:JSON.stringify({proposed:job.response.length,validated:batchRows.length,rejected})}).eq('id',job.id));
     made=checked(await db.rpc('sot_finish_batch',{job:job.id,results}));
    }
   }
