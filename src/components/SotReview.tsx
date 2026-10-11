@@ -10,6 +10,10 @@ import { isInternalUser, isOwnerOrAdmin } from '../lib/permissions';
 import { getSupabase } from '../lib/supabaseClient';
 import { sotAction, type SotConnection, type SotSuggestion, type SotNotification } from '../lib/sot';
 
+function ScanProgress({connection:c}:{connection:SotConnection|null|undefined}){
+ if(!c)return null;
+ return <div className="card" aria-label="Scan progress"><strong>Scan status: {(c.scan_status||'idle').replaceAll('_',' ')}</strong><p>Last attempt: {c.last_attempt_at?new Date(c.last_attempt_at).toLocaleString():'Not recorded yet'} · Last completed scan: {(c.last_completed_at||c.last_scan_at)?new Date((c.last_completed_at||c.last_scan_at)!).toLocaleString():'No completed cycle recorded'}</p>{c.section_progress&&<p>{c.section_progress} · Results stay provisional until the conversation finishes.</p>}<p>{c.scanned_threads} conversations checked this cycle · {c.deferred_threads||0} needing follow-up</p><p>Next eligible attempt: {new Date(c.next_scan_at).toLocaleString()}. Spending limits may delay analysis.</p></div>;
+}
 export function SotReview() {
  const {supportSnapshot}=useAppState();
  return supportSnapshot ? <SupportSotReview/> : <LiveSotReview/>;
@@ -22,7 +26,7 @@ function SupportSotReview(){
  {s?.connection?.last_error&&<p role="status">Scan paused: {s.connection.last_error}</p>}
  {s?.notifications?.map(n=><p key={n.id}>{n.message}</p>)}
  {!s?.suggestions?.length&&<p>No pending suggestions.</p>}
- {s?.suggestions?.map(item=><article className="card" key={item.id} style={{borderLeft:`5px solid ${data.clients.find(c=>c.id===item.payload.client_id)?hexOrDefault(data.clients.find(c=>c.id===item.payload.client_id)!):"#78716c"}`}}><SotTypeBadge suggestion={item}/><h3>{item.title}</h3><SotProjectContext suggestion={item}/><p>{item.description}</p>{item.payload.uncertainty&&<p><strong>Needs review:</strong> {item.payload.uncertainty}</p>}<p className="muted">Client: {data.clients.find(c=>c.id===item.payload.client_id)?.name||item.payload.client_name}{item.kind!=='project'&&<> · Assigned to: {currentUser?.name} · {item.payload.due_date||'No deadline specified'}</>}</p>{(item.kind==='client'&&!item.payload.checklist?.ready||item.payload.checklist?.identity_resolved===false)&&<p>Needs clarification: {item.payload.checklist?.explanation||'Confirm the client relationship before adding.'}</p>}<blockquote>{item.evidence}</blockquote><details><summary>Source email</summary>{item.source_subject}</details></article>)}
+ <ScanProgress connection={s?.connection}/>{s?.suggestions?.map(item=><article className="card" key={item.id} style={{borderLeft:`5px solid ${data.clients.find(c=>c.id===item.payload.client_id)?hexOrDefault(data.clients.find(c=>c.id===item.payload.client_id)!):"#78716c"}`}}><SotTypeBadge suggestion={item}/><h3>{item.title}</h3><SotProjectContext suggestion={item}/><p>{item.description}</p>{item.payload.uncertainty&&<p><strong>Needs review:</strong> {item.payload.uncertainty}</p>}<p className="muted">Client: {data.clients.find(c=>c.id===item.payload.client_id)?.name||item.payload.client_name}{item.kind!=='project'&&<> · Assigned to: {currentUser?.name} · {item.payload.due_date||'No deadline specified'}</>}</p>{(item.kind==='client'&&!item.payload.checklist?.ready||item.payload.checklist?.identity_resolved===false)&&<p>Needs clarification: {item.payload.checklist?.explanation||'Confirm the client relationship before adding.'}</p>}<blockquote>{item.evidence}</blockquote><details><summary>Source email</summary>{item.source_subject}</details></article>)}
  </section>;
 }
 function LiveSotReview() {
@@ -59,13 +63,13 @@ function LiveSotReview() {
  async function run(fn:()=>Promise<void>,label:string){if(running.current)return;running.current=true;setBusy(label);setError('');setMessage('');try{await fn();}catch(e){if(mounted.current)setError(e instanceof Error?e.message:'Please try again.');}finally{running.current=false;if(mounted.current)setBusy('');}}
  async function scan(){await run(async()=>{
   stop.current=false;
-  let more=true,batches=0;
+  let more=true,batches=0,deferred=0;
   while(more&&!stop.current&&batches<100){
-   const result=await sotAction('scan');more=!!result.more;batches++;
+   const result=await sotAction('scan');more=!!result.more;deferred=result.deferred||0;batches++;
    if(!mounted.current)return;
    await load();setMessage(`Reading your conversations… ${batches} or fewer threads checked this session.`);
   }
-  if(mounted.current)setMessage(more?'Scan paused. Your progress is saved; choose Continue scan when ready.':'Scan complete. Review current task suggestions.');
+  if(mounted.current)setMessage(more?'Scan paused. Your progress is saved; choose Continue scan when ready.':deferred?`Email pass finished with ${deferred} conversation(s) needing follow-up. Saved suggestions remain available.`:'Scan complete. Review current task suggestions.');
  },'scan');}
  useEffect(()=>{
   if(loaded&&configured&&connection&&params.get('connection')==='connected'){
@@ -87,7 +91,7 @@ function LiveSotReview() {
   <p className="muted">Find current work in received and sent email, starting with the last seven days. Existing client relationships come first. Only you see your suggestions. Nothing becomes official until you add it.</p>
   {connection?<div className="sot-connection">
    <strong>{connection.email}</strong><span className="muted"> · Read-only Gmail access</span>
-   <p className="muted">{connection.last_scan_at?`Last completed scan: ${new Date(connection.last_scan_at).toLocaleString()}`:connection.scan_started_at?`Recent email scan in progress · ${connection.scanned_threads} conversations checked.`:'Ready to check the last seven days of email.'}</p>
+   <ScanProgress connection={connection}/><p className="muted">{connection.last_scan_at?`Last completed scan: ${new Date(connection.last_scan_at).toLocaleString()}`:connection.scan_started_at?`Recent email scan in progress · ${connection.scanned_threads} conversations checked.`:'Ready to check the last seven days of email.'}</p>
    <p className="muted">AI allowance: up to 10 calls per three hours and 20 per day across the workspace, within the monthly limit. Earlier unreviewed suggestions are retained outside this list.</p>
    {connection.last_error&&<p role="alert">Scan paused: {connection.last_error}</p>}
    <p className="muted">{connection.auto_scan?'Automatic checks run every three hours; small batches continue between checks within spending limits.':'Automatic checks are paused.'} Next eligible check: {new Date(connection.next_scan_at).toLocaleString()}.</p>
