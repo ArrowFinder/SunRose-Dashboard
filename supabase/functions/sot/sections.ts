@@ -16,10 +16,11 @@ export function cleanMessages(messages:any[]){
 export function sectionMessages(messages:any[]){
  const sections:any[][]=[];
  for(const m of cleanMessages(messages)){
-  const {messageId,...header}=m;let text='';let part=0;let overlap=0;
+  const {messageId,...header}=m;let text='';let part=0;let overlap=0;let textBytes=2;
   for(const point of m.body){
-   if(byteSize(text+point)>2000&&text){sections.push([{...header,body:text,part:part++,overlap}]);text=Array.from(text).slice(-160).join('');overlap=text.length;}
-   text+=point;
+   const pointBytes=byteSize(point)-2;
+   if(textBytes+pointBytes>2000&&text){sections.push([{...header,body:text,part:part++,overlap}]);text=Array.from(text).slice(-160).join('');overlap=text.length;textBytes=byteSize(text);}
+   text+=point;textBytes+=pointBytes;
   }
   sections.push([{...header,body:text,part,overlap}]);
  }
