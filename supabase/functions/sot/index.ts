@@ -150,12 +150,13 @@ async function scan(uid:string,manual=false) {
      const known=cache?.fingerprint===fingerprint?raw:raw.slice(-12);
      checked(await db.from('sot_message_receipts').upsert(known.map((m:any)=>({user_id:uid,message_id:m.id})),{onConflict:'user_id,message_id',ignoreDuplicates:true}));continue;
     }
-    const old:any=checked(await db.from('sot_mail_queue').select('fingerprint,status,payload').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
+    const old:any=checked(await db.from('sot_mail_queue').select('fingerprint,status,payload,oldest_at').eq('user_id',uid).eq('thread_id',ref.id).maybeSingle());
     if(old?.fingerprint===fingerprint)continue;
     const receipts:any[]=checked(await db.from('sot_message_receipts').select('message_id').eq('user_id',uid).in('message_id',raw.map((m:any)=>m.id)))||[];
     const seen=new Set(receipts.map(r=>r.message_id));
     // Collection watermark is deliberately separate from analysis receipts. Queued mail never expires out of review.
-    const after=c.collected_through?Math.max(Date.parse(floor),Date.parse(c.collected_through)-86400000):Math.max(Date.parse(floor),Date.parse(started)-7*86400000);
+    let after=c.collected_through?Math.max(Date.parse(floor),Date.parse(c.collected_through)-86400000):Math.max(Date.parse(floor),Date.parse(started)-7*86400000);
+    if(old?.status==='review')after=Math.min(after,Date.parse(old.oldest_at));
     const cleaned=cleanMessages(raw);
     let messages=cleaned.filter((m:any)=>!seen.has(m.id)&&Date.parse(m.date)>=after&&Date.parse(m.date)<Date.parse(started));
     messages=[...new Map([...(old?.status==='ready'?old.payload.messages||[]:[]),...messages].filter((m:any)=>!seen.has(m.id)).map((m:any)=>[m.id,m])).values()].sort((a:any,b:any)=>a.date.localeCompare(b.date));
@@ -179,7 +180,7 @@ async function scan(uid:string,manual=false) {
   }
   let paused=allowance.available<1;
   if(job?.status==='prepared'){
-   if(!checked(await db.rpc('sot_reserve_batch',{job:job.id,manual})))paused=true;
+   if(!checked(await db.rpc('sot_reserve_batch',{job:job.id,manual}))){paused=true;checked(await db.from('sot_batch_jobs').delete().eq('id',job.id).eq('status','prepared'));}
    else {
     job.status='reserved';
     try {
