@@ -25,22 +25,22 @@ function ScanProgress({connection:c,report:r,onChanged}:{connection:SotConnectio
  {report.review_items?.length>0&&<details><summary>Conversations needing review</summary>{report.review_items.map(x=><div key={x.thread_id}>{x.reason} <a href={'https://mail.google.com/mail/u/?authuser='+encodeURIComponent(c.email)+'#all/'+encodeURIComponent(x.thread_id)} target="_blank" rel="noreferrer">Open in Gmail</a>{onChanged&&<details><summary>Retry or resolve</summary><SotRecovery thread={x.thread_id} onDone={onChanged}/></details>}</div>)}</details>}</>}
  <p>Next eligible automatic check: {new Date(c.next_scan_at).toLocaleString()}.</p></div>;
 }
-export function SotReview() {
+export function SotReview({showHistory=true}:{showHistory?:boolean}) {
  const {supportSnapshot}=useAppState();
- return supportSnapshot ? <SupportSotReview/> : <LiveSotReview/>;
+ return supportSnapshot ? <SupportSotReview showHistory={showHistory}/> : <LiveSotReview showHistory={showHistory}/>;
 }
-function SupportSotReview(){
+function SupportSotReview({showHistory}:{showHistory:boolean}){
  const {supportSnapshot:s,currentUser,data}=useAppState();
  return <section className="card stack" aria-label="SOT — Source of Truth"><h2>SOT · Suggestions {s?.suggestions?.length||0}</h2>
  <p className="muted">Read-only suggestions for {currentUser?.name}. Review actions are available in their own account.</p>
  <p>{s?.connection?`${s.connection.email} · ${s.connection.auto_scan?'Automatic checks enabled':'Automatic checks paused'}`:'Gmail is not connected.'}</p>
  {s?.connection?.last_error&&<p role="status">Scan paused: {s.connection.last_error}</p>}
- {s?.notifications?.map(n=><p key={n.id}>{n.message}</p>)}
+ {showHistory&&s?.notifications?.map(n=><p key={n.id}>{n.message}</p>)}
  {!s?.suggestions?.length&&<p>No pending suggestions.</p>}
  <ScanProgress connection={s?.connection}/>{s?.suggestions?.map(item=><article className="card" key={item.id} style={{borderLeft:`5px solid ${data.clients.find(c=>c.id===item.payload.client_id)?hexOrDefault(data.clients.find(c=>c.id===item.payload.client_id)!):"#78716c"}`}}><SotTypeBadge suggestion={item}/><h3>{item.title}</h3><SotProjectContext suggestion={item}/><p>{item.description}</p>{item.payload.uncertainty&&<p><strong>Needs review:</strong> {item.payload.uncertainty}</p>}<p className="muted">Client: {data.clients.find(c=>c.id===item.payload.client_id)?.name||item.payload.client_name}{item.kind!=='project'&&<> · Assigned to: {currentUser?.name} · {item.payload.due_date||'No deadline specified'}</>}</p>{(item.kind==='client'&&!item.payload.checklist?.ready||item.payload.checklist?.identity_resolved===false)&&<p>Needs clarification: {item.payload.checklist?.explanation||'Confirm the client relationship before adding.'}</p>}<blockquote>{item.evidence}</blockquote><details><summary>Source email</summary>{item.source_subject}</details></article>)}
  </section>;
 }
-function LiveSotReview() {
+function LiveSotReview({showHistory}:{showHistory:boolean}) {
  const [budget,setBudget]=useState<SotBudget|null>(null),[report,setReport]=useState<SotReport|null>(null);
  const [editing,setEditing]=useState<SotSuggestion|null>(null);
  const {cloud,currentUser,data,refresh}=useAppState();
@@ -120,7 +120,7 @@ function LiveSotReview() {
    <p className="muted">{configured?'SOT reads relevant conversations to suggest work. Relevant email text is processed by OpenAI; attachments are not scanned. It cannot send or delete emails.':'Google connection setup is pending. Sierra’s starting mailbox is sierra@sunrosecreative.com.'}</p>
   </div>}
   {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
-  {notifications.length>0&&<div className="stack"><h3>New tasks from SOT</h3>{notifications.map(n=>{const task=data.workItems.find(t=>t.id===n.task_id);return <div className="sot-notification" key={n.id}><p>{n.message}</p><div className="row">{task&&<Link to={`/client/${task.clientId}?month=${task.yearMonth}&task=${task.id}`}>View task</Link>}<button className="btn btn-ghost" disabled={!!busy} onClick={()=>void run(async()=>{const r=await getSupabase().rpc('sot_mark_read',{notification_id:n.id});if(r.error)throw new Error(r.error.message);await load();},n.id)}>Mark read</button></div></div>;})}</div>}
+  {showHistory&&notifications.length>0&&<div className="stack"><h3>New tasks from SOT</h3>{notifications.map(n=>{const task=data.workItems.find(t=>t.id===n.task_id);return <div className="sot-notification" key={n.id}><p>{n.message}</p><div className="row">{task&&<Link to={`/client/${task.clientId}?month=${task.yearMonth}&task=${task.id}`}>View task</Link>}<button className="btn btn-ghost" disabled={!!busy} onClick={()=>void run(async()=>{const r=await getSupabase().rpc('sot_mark_read',{notification_id:n.id});if(r.error)throw new Error(r.error.message);await load();},n.id)}>Mark read</button></div></div>;})}</div>}
   {loaded&&suggestions.length===0&&<p className="muted">No suggestions waiting for review.{connection?' Scan emails to look for client requests.':''}</p>}
   <div className="stack">{sorted.map((s,i)=><div key={s.id}>{(i===0||(['client','project'].includes(sorted[i-1].kind)?sorted[i-1].kind:'work')!==(['client','project'].includes(s.kind)?s.kind:'work'))&&<h3>{s.kind==='client'?'Possible Clients':s.kind==='project'?'Suggested Projects':'Task Suggestions'}</h3>}<article className="sot-suggestion" key={s.id} style={{borderLeft:`5px solid ${data.clients.find(c=>c.id===s.payload.client_id)?hexOrDefault(data.clients.find(c=>c.id===s.payload.client_id)!):"#78716c"}`}}>
    <SotTypeBadge suggestion={s}/>

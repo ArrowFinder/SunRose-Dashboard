@@ -14,7 +14,7 @@ Internal SunRose emails can support work for an existing client identified by th
 
 ## People and review
 
-Active owners, admins, supervisors and employees may connect Gmail. Each person reviews their own work suggestions. Accepted tasks are assigned to that person and start private; owners and supervisors receive notifications. Owner/admin approval is required for projects. The Overview owner review inbox exposes other staff members' project proposals, allowing approval without impersonating them. Related tasks remain pending under the originating reviewer. Support view stays read-only.
+Active owners, admins, supervisors and employees may connect Gmail. Each person reviews their own work suggestions. Accepted tasks default to that person and start private; Edit before adding can explicitly select another active teammate. Owners and supervisors receive notifications. Selecting an assignee does not transfer the mailbox connection or suggestion ownership. Owner/admin approval is required for projects. The Overview owner review inbox exposes other staff members' project proposals, allowing approval without impersonating them. Related tasks remain pending under the originating reviewer. Support view stays read-only.
 
 Client share requests enter a separate intake table and appear in the owner review inbox. An owner/admin selects a client project to create a task, or dismisses the request. New tasks start private and assigned to the reviewer. Intake is idempotent and limited to 20 requests per client per hour. Anonymous visitors cannot read the intake table.
 

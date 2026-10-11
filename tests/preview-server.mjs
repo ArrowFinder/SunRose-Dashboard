@@ -48,6 +48,7 @@ await db.query("insert into public.sot_connections(user_id,email,last_error) val
 await db.query("insert into client_requests(id,client_id,title,description) values(gen_random_uuid(),'10000000-0000-4000-8000-000000000001','Review new website copy','Please review our new page.')");
 await db.query(`insert into sot_suggestions(user_id,kind,dedupe_key,title,description,payload,source_thread,evidence) values($1,'project','preview-employee-project','Winter campaign','Email campaign for winter.','{"client_id":"10000000-0000-4000-8000-000000000001","client_name":"Preview client","checklist":{"identity_resolved":true},"analysis_version":4}','preview-project','Please prepare our winter campaign.')`,[users[1].id]);
 await db.query(`insert into sot_mail_queue(user_id,thread_id,fingerprint,payload,status,reason,oldest_at) values($1,'preview-review','fp',$2,'review','Interrupted request; review before retrying.',now())`,[users[0].id,JSON.stringify({messages:[{id:'a',subject:'First campaign request',date:new Date().toISOString(),body:'Please prepare the campaign.'},{id:'b',subject:'Second campaign request',date:new Date().toISOString(),body:'Please review the draft.'}]})]);
+await db.query("insert into sot_notifications(recipient_id,task_id,message) values($1,'20000000-0000-4000-8000-000000000001','Preview SOT history retained')",[users[0].id]);
 const allowed = new Set([
   "client_requests",
   "projects",
@@ -65,6 +66,7 @@ const allowed = new Set([
   "active_timers",
 ]);
 const rpc = new Set([
+  "sot_review_submit","review_create_client","review_create_project",
   "sot_review_messages","sot_recover_thread","review_client_request","sot_project_approvals","sot_accept_project",
   "save_time_log","start_project_timer","payroll_data","set_staff_pay_rate","create_pay_period","change_pay_period","support_user_snapshot","sot_edit_and_accept","sot_approve_project_and_task",
   "member_client_view",
@@ -166,6 +168,13 @@ const server = http.createServer((req, res) => {
             res.writeHead(204);
             res.end();
             return;
+          }
+          if(url.pathname === "/functions/v1/sot" && input.action==='create_teammate'){
+            if(!user)return send(401,{error:'Sign in first'});
+            const r=(await db.query('select prepare_team_setup($1,$2,$3,$4,$5) r',[user.id,input.requestId,input.email,input.name,input.role])).rows[0].r;
+            let id=r.user_id;
+            if(!id){id=crypto.randomUUID();await db.query('insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)',[id,r.email,JSON.stringify({display_name:r.display_name,team_setup_id:r.id})]);await db.query('select finish_team_setup($1,$2,$3)',[user.id,r.id,id]);}
+            return send(200,{id,name:r.display_name,role:r.role,email:r.email,setupLink:'https://example.test/preview-setup-only'});
           }
           if(url.pathname === "/functions/v1/sot") return send(200, {configured:false,budget:(await db.query('select sot_budget() b')).rows[0].b,report:user?(await db.query('select sot_queue_report($1) r',[user.id])).rows[0].r:null});
           if (!url.pathname.startsWith("/rest/v1/"))

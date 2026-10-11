@@ -43,7 +43,7 @@ export function Overview() {
           </div></li>;
         })}</ul>}
     </section>
-    <ReviewInbox/><SotReview />
+    <ReviewInbox/><SotReview showHistory={false} />
     <section aria-label="All clients calendar"><CalendarPage embedded /></section>
   </div>;
 }

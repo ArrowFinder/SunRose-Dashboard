@@ -5,6 +5,7 @@ Start here for the current shared dashboard. Historical release receipts are lab
 | Need | Read |
 |---|---|
 | What SOT reads, suggests, remembers, and spends | [SOT behavior and budgets](SOT_TRUTH_MODEL.md) |
+| Add teammates and create missing records during review | [Inline review guide](INLINE_REVIEW.md) |
 | Connect Gmail and configure the server | [SOT setup](SOT_SETUP.md) |
 | Recover a stuck email or review employee projects | [Recovery and review guide](SOT_RECOVERY.md) |
 | The eight audit fixes and their verification | [Audit remediation](AUDIT_REMEDIATION.md) |

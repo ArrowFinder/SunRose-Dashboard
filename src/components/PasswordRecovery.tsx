@@ -29,7 +29,7 @@ export function PasswordRecovery({ children }: { children: ReactNode }) {
   return <main className="layout" style={{ maxWidth: 420 }}>
     <h1>{saved ? "Password updated" : "Choose a new password"}</h1>
     {saved ? <><p role="status">Your new password is saved.</p><button className="btn btn-primary" onClick={() => { window.location.hash = "/"; auth.finishPasswordRecovery(); }}>Continue to dashboard</button></> :
-      auth.loading ? <p>Checking your reset link…</p> : !auth.session ? <><p>This reset link has expired or is invalid. Request a new link from the sign-in page.</p><button className="btn btn-primary" onClick={() => { window.location.hash = "/login"; auth.finishPasswordRecovery(); }}>Back to sign in</button></> :
+      auth.loading ? <p>Checking your setup link…</p> : !auth.session ? <><p>This link has expired or is invalid. Ask your administrator for a new setup link, or use Forgot password on the sign-in page.</p><button className="btn btn-primary" onClick={() => { window.location.hash = "/login"; auth.finishPasswordRecovery(); }}>Back to sign in</button></> :
       <form className="card" onSubmit={submit}>
         <div className="field"><label htmlFor="new-password">New password</label><input id="new-password" className="input" type="password" autoComplete="new-password" minLength={8} required value={password} onChange={e => setPassword(e.target.value)} /></div>
         <div className="field"><label htmlFor="confirm-password">Confirm password</label><input id="confirm-password" className="input" type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={e => setConfirm(e.target.value)} /></div>

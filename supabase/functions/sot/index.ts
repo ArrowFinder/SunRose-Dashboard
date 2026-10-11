@@ -1,3 +1,4 @@
+import {createTeammate} from './team.ts';
 import { allPages, relevantWork } from './context.ts';
 import { cleanMessages, byteSize } from './sections.ts';
 import { packRelated, pacificHour, tokenCost, BATCH_RULES } from './batches.ts';
@@ -241,7 +242,9 @@ Deno.serve(async req=>{
   if(!bearer) return json({error:'Sign in first'},401);
   const {data:{user},error}=await db.auth.getUser(bearer);if(error||!user) return json({error:'Sign in again'},401);
   await staff(user.id);
-  const {action,suggestionId,query}=await req.json();
+  const input=await req.json();
+  const {action,suggestionId,query}=input;
+  if(action==='create_teammate')return json(await createTeammate(db,user.id,input,app));
   if(action==='status') return json({configured:configured(),startingMailbox:STARTING_MAILBOX,budget:checked(await db.rpc('sot_budget',{manual:true})),report:checked(await db.rpc('sot_queue_report',{uid:user.id}))});
   if(action==='connect') {
    if(!configured()) return json({error:'Sierra’s Google connection setup is still needed.'},503);
