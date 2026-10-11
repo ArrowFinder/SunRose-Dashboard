@@ -1,5 +1,7 @@
 # Project and time-tracking release rehearsal
 
+> Historical release receipt. For current behavior and deployment, use the [documentation home](README.md). The dates, counts and rollout status below describe that earlier release.
+
 Validated October 9, 2026, for draft PR #14. No production migrations or publication were performed during this rehearsal.
 
 - 104 automated tests pass; TypeScript and production build pass.

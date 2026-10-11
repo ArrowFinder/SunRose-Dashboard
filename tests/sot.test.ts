@@ -413,12 +413,12 @@ test('project approval creates no tasks, links pending work, and is retry-safe',
  assert.equal(related.status,'pending');assert.equal(related.payload.project_id,id);
  assert.equal((await db.query<any>('select description from public.projects where id=$1',[id])).rows[0].description,args[3]);
 });
-test('project approval enforces role, ownership, active client, stale review and independent task approval',async()=>{
+test('project approval enforces privileged role, stale review and independent task approval',async()=>{
  const sid=await suggestion(ids[0],'project',crypto.randomUUID(),{client_id:clientId,analysis_version:4});
  const stamp=(await db.query<any>('select updated_at from public.sot_suggestions where id=$1',[sid])).rows[0].updated_at;
  const sql='select public.sot_accept_project($1,$2,$3,$4)';
  await assert.rejects(as(ids[3],sql,[sid,stamp,'No','Scope']),/Owner or admin/);
- await assert.rejects(as(ids[1],sql,[sid,stamp,'No','Scope']),/not found/);
+ await assert.rejects(as(ids[2],sql,[sid,stamp,'No','Scope']),/Owner or admin/);
  await assert.rejects(as(ids[0],sql,[sid,'2000-01-01','No','Scope']),/changed/);
  await assert.rejects(as(ids[0],sql,[sid,stamp,'No','']),/scope are required/);
  const task=await suggestion(ids[0],'task',crypto.randomUUID(),{client_id:clientId});

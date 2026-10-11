@@ -1,47 +1,20 @@
-# SOT — Source of Truth
+# SOT setup
 
-## What is implemented
+[Documentation home](README.md) · [Behavior and budget contract](SOT_TRUTH_MODEL.md)
 
-Personal Gmail OAuth connection for active Owner, Admin, Supervisor and Employee accounts. Clients cannot connect. Gmail access is read-only. Each person reviews their own client/task/subtask/update/completion suggestions on Overview or SOT. Add accepts populated fields; Delete dismisses without changing email. New clients start with zero retainer hours until configured. New tasks are private and assigned to the approving mailbox owner. Owner and Supervisor receive an in-app notification; Admin does not.
+SOT connects each active staff user's Gmail with read-only OAuth. Dashboard sign-in and the connected Gmail account are distinct. Do not share passwords or paste keys into chat or source control.
 
-Supervisor has internal task and timer access across the workspace, without account management, time correction or client-sharing permissions.
+## Google and Supabase
 
-Initial scan starts after connecting; scans include Inbox and Sent for the preceding 90 days. For sunrosecreative.com accounts, relevant client work is extracted from mailbox conversations. Other mailboxes are restricted to messages with an exact sunrosecreative.com sender/recipient/CC. Attachments, spam, trash and drafts are excluded. Archived received threads without an inbox/sent match are outside the initial scope.
+1. Use the authorized Google Cloud project, enable Gmail API, and configure OAuth consent for the intended Workspace users. If the app is in testing, include the intended test users.
+2. Configure a web OAuth client with the redirect URI `https://vpyddcdncjmkjlidbsdi.supabase.co/functions/v1/sot/callback`. Store the client ID as its identifier, without `https://` or trailing slash.
+3. Store server secrets in Supabase: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OPENAI_API_KEY`, `SOT_TOKEN_KEY` (32 bytes encoded as base64), `SOT_APP_URL`, and `SOT_SCHEDULER_KEY`. Supabase supplies its URL and service-role key. No secret belongs in frontend `VITE_` variables. Rotating the token-encryption key requires mailbox reconnection.
+4. Follow [deployment](../DEPLOY.md): back up, apply pending migrations in order, deploy all SOT function files, then publish the frontend. The callback's gateway JWT check is disabled in `supabase/config.toml`; app routes still validate authentication and staff membership themselves.
+5. Configure `supabase/deployment/schedule_sot.sql` using the same scheduler secret in Vault and Edge Function secrets. It dispatches due work each minute; the function enforces the six Pacific slots and shared budget. Verify the scheduled job and recent outcomes after deployment.
+6. The user signs into SunRose, opens SOT, selects **Connect Gmail**, and authorizes the intended Google mailbox. This can initiate a manual scan. Never connect or scan merely to test a release without intended mailbox access and spending authorization.
 
-Scans run in batches while the SOT page is open, with Pause/Continue support. Choose Scan emails for subsequent scans. **Unattended background scanning is not part of this version.** Each changed thread replaces only its pending suggestions; accepted/dismissed decisions remain. Exact request keys deduplicate across mailboxes, and acceptance also checks existing client/title/parent/deadline matches. Semantic duplicate detection is assisted by the model and requires user review.
+## What to verify
 
-No actual Sierra mail has been accessed during development. Local tests use fabricated records; the live OpenAI smoke check also uses a fabricated email.
+Confirm the mailbox shown, automatic checks setting, next eligible check, queue counts and budget. An empty suggestion list does not prove there is no backlog. Test with a bounded, authorized real scan after local checks, and distinguish observed results from expected model behavior.
 
-## Sierra: Google setup
-
-1. Sign in to Google Cloud Console with an account authorized to manage the Sunrose Creative Workspace organization. Create/select a project owned by that organization, named SunRose SOT.
-2. Enable the Gmail API.
-3. In Google Auth Platform, configure Branding and Audience. Use Internal when all connecting staff accounts belong to the same Google Workspace organization. Personal Gmail or other organizations require an External app and may require Google's restricted-scope verification; do not assume Internal supports those accounts.
-4. In Data Access, request only `https://www.googleapis.com/auth/gmail.readonly`.
-5. Create an OAuth client, type Web application. Add this exact authorized redirect URI:
-
-   `https://vpyddcdncjmkjlidbsdi.supabase.co/functions/v1/sot/callback`
-
-6. Keep the OAuth client ID and client secret private. Save them directly into Supabase Edge Function secrets as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, or arrange a secure setup session. Do not paste the secret in chat, send by email, or commit it to GitHub.
-7. Once deployment is confirmed, sign in to the SunRose dashboard with your existing SunRose account, open SOT, click Connect Gmail, and select `sierra@sunrosecreative.com`. Grant read access. Connecting Gmail does not replace the dashboard sign-in account.
-
-Relevant Google documentation:
-- https://developers.google.com/identity/protocols/oauth2/web-server
-- https://developers.google.com/workspace/gmail/api/auth/scopes
-- https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification
-
-## Current implementation and deployment
-
-See [SOT_TRUTH_MODEL.md](SOT_TRUTH_MODEL.md) for the current behavior, evidence rules, suggestion types, limits and validation plan. Earlier setup versions described a 90-day initial discovery and two calls for every thread; those are no longer the routine current-work behavior.
-
-Apply unapplied migrations in filename order, committing enum additions before later migrations. Do not replay old migrations over newer function definitions. Deploy the server function before the frontend. The standalone project release ends with `20261010070000_sot_truth_projects.sql`.
-
-Server-only secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, OPENAI_API_KEY, SOT_TOKEN_KEY (32 bytes encoded as base64), SOT_APP_URL and SOT_SCHEDULER_KEY. Supabase supplies SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. Never place secrets in VITE-prefixed configuration or logs. Replacing SOT_TOKEN_KEY requires mailbox reconnection.
-
-The callback's legacy gateway JWT check remains disabled because Google cannot supply that header. Application requests verify the authenticated active staff user; OAuth callbacks verify a hashed, single-use, expiring state. Tokens are encrypted server-side. Raw email bodies and access tokens are not persisted; private suggestions retain summaries, short quotations and source references.
-
-The existing scheduler configuration is in `supabase/deployment/schedule_sot.sql`. Keep its Vault secret aligned with the function secret. Verify actual invocations and next-scan timestamps before asserting that scheduling is live. No scheduler or quota change is needed for standalone project suggestions.
-
-Website lookup stays an optional separate action with a 40-per-month workspace allowance. Only the submitted public search query is sent to web search. Results require explicit reviewer confirmation. No website is invented from a company name.
-
-Google Docs remains deferred; see [GOOGLE_DOCS_FOLLOWUP.md](GOOGLE_DOCS_FOLLOWUP.md). API smoke scripts are optional paid tests and never part of `npm test`.
+Google Docs and attachments are not integrated. Review [Google Docs follow-up](GOOGLE_DOCS_FOLLOWUP.md) before expanding access. Employees use the same OAuth app; each grants their own mailbox consent. Workspace policy may require administrator approval.

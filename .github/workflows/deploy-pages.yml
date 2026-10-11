@@ -34,12 +34,19 @@ jobs:
           node-version: "24"
           cache: npm
 
-      - name: Install and build
+      - name: Install, test and build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-        run: npm ci && npm run build
+        run: npm ci && npm test && npm run build
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Check SOT server types
+        run: deno check supabase/functions/sot/index.ts
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4

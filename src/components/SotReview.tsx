@@ -1,3 +1,4 @@
+import {SotRecovery} from "./SotRecovery";
 import { SotTypeBadge } from "./SotTypeBadge";
 import { SotProjectContext } from "./SotProjectContext";
 import { SotEditDialog } from "./SotEditDialog";
@@ -10,7 +11,7 @@ import { isInternalUser, isOwnerOrAdmin } from '../lib/permissions';
 import { getSupabase } from '../lib/supabaseClient';
 import { sotAction, type SotConnection, type SotSuggestion, type SotNotification, type SotBudget, type SotReport } from '../lib/sot';
 
-function ScanProgress({connection:c,report:r}:{connection:SotConnection|null|undefined;report?:SotReport|null}){
+function ScanProgress({connection:c,report:r,onChanged}:{connection:SotConnection|null|undefined;report?:SotReport|null;onChanged?:()=>void}){
  if(!c)return null;const report=r||c.scan_report;
  return <div className="card" aria-label="Scan progress"><strong>Scan status: {(c.scan_status||'idle').replaceAll('_',' ')}</strong>
  <p>Last attempt: {c.last_attempt_at?new Date(c.last_attempt_at).toLocaleString():'Not recorded yet'} · Last completed scan: {c.last_completed_at?new Date(c.last_completed_at).toLocaleString():'No completed cycle recorded'}</p>
@@ -19,7 +20,9 @@ function ScanProgress({connection:c,report:r}:{connection:SotConnection|null|und
  {report.oldest&&<p>Oldest waiting email: {new Date(report.oldest).toLocaleString()}</p>}
  <p>Recorded email-analysis cost: ${Number(report.estimated_usd).toFixed(4)} · {report.input_tokens.toLocaleString()} input / {report.output_tokens.toLocaleString()} output tokens</p>
  <p className="muted">Estimate since batching started; excludes historical usage, website searches, and {report.unpriced_calls} requests without reported usage. Not an invoice.</p>
- {report.review_items?.length>0&&<details><summary>Conversations needing review</summary>{report.review_items.map(x=><p key={x.thread_id}>{x.reason} <a href={'https://mail.google.com/mail/u/?authuser='+encodeURIComponent(c.email)+'#all/'+encodeURIComponent(x.thread_id)} target="_blank" rel="noreferrer">Open in Gmail</a></p>)}</details>}</>}
+ {!!report.fetch_retries&&<p>{report.fetch_retries} email retrievals awaiting retry. Saved queued content is retained.</p>}
+ {!!report.manually_resolved_messages&&<p>{report.manually_resolved_messages} messages handled manually.</p>}
+ {report.review_items?.length>0&&<details><summary>Conversations needing review</summary>{report.review_items.map(x=><div key={x.thread_id}>{x.reason} <a href={'https://mail.google.com/mail/u/?authuser='+encodeURIComponent(c.email)+'#all/'+encodeURIComponent(x.thread_id)} target="_blank" rel="noreferrer">Open in Gmail</a>{onChanged&&<details><summary>Retry or resolve</summary><SotRecovery thread={x.thread_id} onDone={onChanged}/></details>}</div>)}</details>}</>}
  <p>Next eligible automatic check: {new Date(c.next_scan_at).toLocaleString()}.</p></div>;
 }
 export function SotReview() {
@@ -100,7 +103,7 @@ function LiveSotReview() {
   <p className="muted">Find current work in received and sent email, starting with the last seven days. Existing client relationships come first. Only you see your suggestions. Nothing becomes official until you add it.</p>
   {connection?<div className="sot-connection">
    <strong>{connection.email}</strong><span className="muted"> · Read-only Gmail access</span>
-   <ScanProgress connection={connection} report={report}/>
+   <ScanProgress connection={connection} report={report} onChanged={()=>void load().catch(e=>setError(e.message))}/>
    <p className="muted">20 calls per Pacific day · 600 monthly cap · up to 10 in a rolling three-hour window. Three calls are released per check; unused allowance carries forward that day, with two calls reserved for manual checks.</p>
    {budget&&<p><strong>{budget.available} calls available now</strong> · {budget.daily_used}/{budget.daily_limit} today · {budget.monthly_used}/{budget.monthly_limit} this month. Daily reset: {new Date(budget.daily_reset).toLocaleString()}.</p>}
    {connection.last_error&&<p role="alert">Scan paused: {connection.last_error}</p>}

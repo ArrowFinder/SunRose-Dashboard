@@ -33,5 +33,7 @@ export function duplicateWork(p:Proposal,known:KnownWork[]){
 export function proposalIdentity(p:Proposal){
  if(p.kind==='project')return ['project',p.client_id,canonical(p.title)].join(':');
  if(p.kind==='client')return 'client:'+canonical(p.client_name);
+ // An update is an evidence-backed change, not the permanent identity of its task.
+ if(p.kind==='update'||p.kind==='complete')return [p.kind,p.client_id,p.task_id,p.source_message_id,canonical(p.evidence),canonical(p.description),p.due_date||'',p.estimated_hours??''].join(':');
  return [p.kind,p.client_id||canonical(p.client_name),p.project_id||canonical(p.new_project_name||''),p.parent_id||'',canonical(p.title),p.due_date||'',p.task_id||''].join(':');
 }

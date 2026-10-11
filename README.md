@@ -1,107 +1,29 @@
-# SunRose — Client scope dashboard
+# SunRose Dashboard
 
-**Shared-workspace upgrade:** see [SHARED-WORKSPACE.md](./SHARED-WORKSPACE.md) for implementation, tests, and rollout. With Supabase configured, tasks, clients, time records, and templates now use shared storage. Without it, the app remains offline. For the upgrade, follow the new rollout guide rather than the original prototype setup notes below.
+SunRose's shared workspace for **clients → projects → tasks → subtasks**, calendars, time tracking, pay-period review, and SOT email suggestions. Client-facing views expose only deliberately shared work.
 
-Lightweight internal + client-facing views to track retainers, tasks, **timer-based time entries**, calendar due dates, templates, and team roles (owner / admin / employee / optional client profile). **Offline mode:** data lives in **IndexedDB** in this browser; export/import JSON (v2) for backups. **Optional cloud login:** connect a free [Supabase](https://supabase.com) account so you can sign in with email and password—see **Simple Supabase setup** below.
+**[Documentation home](docs/README.md)** · [SOT behavior and budgets](docs/SOT_TRUTH_MODEL.md) · [Recovery and review](docs/SOT_RECOVERY.md) · [Deployment](DEPLOY.md) · [Audit fixes](docs/AUDIT_REMEDIATION.md)
 
-## Simple Supabase setup (optional — email login)
+## Local development
 
-Skip this whole section if you’re happy with **offline PIN login** only.
+Use Node.js 24 and install dependencies with `npm ci`. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in an ignored local environment file, then run `npm run dev`. Use only the public/anon key in frontend configuration. Server credentials and database backups must remain outside Git.
 
-### Part A — Two copy-paste values from Supabase
+Without Supabase configuration the app uses its separate local prototype storage. That mode is not the shared agency dashboard and does not provide Gmail scanning or production cloud permissions. Never use local prototype data as evidence that production database behavior works.
 
-1. Go to [supabase.com](https://supabase.com), sign in, and open your project (create one if needed — free tier is fine).
-2. Click the **gear icon** at the bottom left — **Project Settings**.
-3. Click **API** in the left menu.
-4. Find **Project URL** — it looks like `https://something.supabase.co`. **Copy it.**
-5. Scroll to **Project API keys**. Find the key named **anon** and **public** (not `service_role`). **Copy that long key.**
+## Checks
 
-Those two copies are all you need. The app asks for them using technical names — you can ignore the names and just put them in the right place:
+- `npm test` runs database, authorization, budget and application regression tests using local PGlite and TypeScript helpers. It does not call Gmail or OpenAI.
+- `npm run build` checks frontend TypeScript and builds the site.
+- `deno check supabase/functions/sot/index.ts` separately checks the server entrypoint and its imports.
 
-| What Supabase calls it | What you put in the file |
-|------------------------|---------------------------|
-| **Project URL** | After `VITE_SUPABASE_URL=` |
-| **anon public** key | After `VITE_SUPABASE_ANON_KEY=` |
+GitHub Pages deployment runs tests and checks SOT server types before publishing. Database migrations and the SOT server deployment are separate steps; see [deployment](DEPLOY.md). Do not publish frontend changes requiring a migration before the database/server are ready.
 
-(`VITE_` is only there because the build tool requires it — you don’t need to understand it, just use the file below.)
+## Access and workflows
 
-6. In this project folder (same place as `package.json`), create a new file named **`.env`**.
-7. Put exactly two lines in it (paste your real values, no quotes):
+New signups require a name and start without assigned business access. Owners/admins manage access. Staff roles are owner, admin, supervisor and employee; clients see only their assigned shared view. Owner/admin support viewing is read-only.
 
-```env
-VITE_SUPABASE_URL=paste-your-Project-URL-here
-VITE_SUPABASE_ANON_KEY=paste-your-anon-key-here
-```
+SOT connects staff Gmail with read-only consent. People review suggestions; projects require owner/admin approval. The Overview owner review inbox includes employee project suggestions and client requests awaiting project assignment. All connected mailboxes share the SOT budget. See the [single current contract](docs/SOT_TRUTH_MODEL.md) for exact limits and exclusions.
 
-8. Save the file. Run `npm run dev` again (stop it with Ctrl+C first if it’s already running).
+Time entries preserve their historical project association when a task moves. Corrections are audited. Submitted/approved/locked pay periods require authorized reopening before edits. Reports are recorded hours and base-pay calculations, not processed payroll or tax calculations.
 
-You can also open **`.env.example`** in this project — it has the same instructions in the comments.
-
-### Part B — One-time database setup (so login works)
-
-1. In Supabase, click **SQL Editor** in the left sidebar.
-2. Click **New query**.
-3. On your computer, open the file **`supabase/migrations/20250201000000_profiles.sql`** in this project. Select all the text, copy it, paste it into the Supabase SQL box, and click **Run**.
-
-### Part C — Tell Supabase your app’s address (avoids “redirect” errors)
-
-1. In Supabase: **Authentication** → **URL Configuration**.
-2. Under **Redirect URLs**, add: `http://localhost:5173` (and later your GitHub Pages URL if you deploy there).
-
-### Part D — Make yourself the owner (first account only)
-
-1. Use the app’s login page to **sign up** once with email + password.
-2. In Supabase: **Authentication** → **Users** — click your user and copy the **User UID**.
-3. **SQL Editor** → new query → run (replace the id with your UID):
-
-```sql
-update public.profiles set role = 'owner' where id = 'PASTE-YOUR-USER-UID-HERE';
-```
-
-## Run locally (one step at a time)
-
-**Step 1.** Install [Node.js](https://nodejs.org/) (LTS) if you don’t have it yet.
-
-**Step 2.** In Terminal, go to this project folder:
-
-```bash
-cd "/path/to/SunRose Client Dashbaord"
-```
-
-**Step 3.** Install and start:
-
-```bash
-npm install
-npm run dev
-```
-
-Open the URL shown (usually `http://localhost:5173`).
-
-## Daily use (no code)
-
-1. **Sign in** (`#/login`) as owner or employee (optional **PIN** per user). First launch creates an **Owner** profile automatically.
-2. **Team** (`#/team`) — users, PINs, demo data (owner). **Clients** (`#/clients`) — retainers, colors, shared links, **backup** import/export.
-3. **Overview** — scope risk by client; **used** hours prefer **timer entries**, else manual actuals on tasks.
-4. Open a **client** — month view, tasks with **due date** & **assignee**, **Start timer** / **Log time**, time entry list. When adding/editing a task, optionally **save as reusable template for that client only**; use **From template** to duplicate.
-5. **Calendar** — month grid of tasks with due dates, colored by client.
-6. **Download JSON backup** (v2: includes users, time entries, per-client templates); **Import** on another machine.
-
-Client links (`#/c/...`) resolve **only where your data exists** (same browser, or after import). For calls, screen-share from your machine or import backup on the device you use.
-
-## GitHub Pages
-
-Step-by-step checklist (create repo, deploy, Supabase URLs, secrets): see **[DEPLOY.md](./DEPLOY.md)**.
-
-## Tech
-
-- Vite + React + TypeScript
-- React Router (hash routing for static hosting)
-- **Dexie** (IndexedDB) + JSON v2 export/import (migrates legacy `localStorage` v1 on first run)
-
-## License
-
-Private / your use.
-
-## Source of Truth (SOT)
-
-See [the SOT behavior contract](docs/SOT_TRUTH_MODEL.md) for evidence-based client/project/task suggestions, separate approvals, scan limits and known limitations.
+Historical implementation receipts are linked from the documentation home. They are retained as history, not current deployment instructions.
