@@ -9,7 +9,7 @@ export function supportedProposal(p:Proposal,source:{subject:string;body:string}
  if(!quoted(p.evidence,source.body))return false;
  if(/^(copyright|unsubscribe|all rights reserved|sent from)/i.test(p.evidence.trim()))return false;
  if(p.kind==='project')return p.work_state==='ongoing'&&!!p.client_id&&quoted(p.project_evidence,source.body);
- if(p.kind==='task'&&p.work_state!=='outstanding')return false;
+ if(p.kind==='task'&&!['outstanding','ongoing'].includes(p.work_state||''))return false;
  if(p.kind==='complete'&&p.work_state!=='completed')return false;
  if(p.kind==='update'&&p.work_state!=='changed')return false;
  // Don't turn an explicit sent/completed/cancelled statement into a fresh task.
@@ -39,4 +39,9 @@ export function proposalIdentity(p:Proposal){
  // An update is an evidence-backed change, not the permanent identity of its task.
  if(p.kind==='update'||p.kind==='complete')return [p.kind,p.client_id,p.task_id,p.source_message_id,canonical(p.evidence),canonical(p.description),p.due_date||'',p.estimated_hours??''].join(':');
  return [p.kind,p.client_id||canonical(p.client_name),p.project_id||canonical(p.new_project_name||''),p.parent_id||'',canonical(p.title),p.due_date||'',p.task_id||''].join(':');
+}
+
+export function suggestionCaution(p:Proposal){
+ const inferredPreparation=p.kind==='task'&&/\b(?:interview|meeting|appointment)\b/i.test(p.evidence)&&/\b(?:prepare|preparation|materials|briefing|presentation)\b/i.test(p.title+' '+p.description)&&!/\b(?:prepare|preparation|materials|briefing|presentation|bring|draft|write|questions)\b/i.test(p.evidence);
+ return inferredPreparation?'The email describes an appointment but does not explicitly request preparation materials. Confirm whether this proposed task is useful before adding it.':'';
 }
