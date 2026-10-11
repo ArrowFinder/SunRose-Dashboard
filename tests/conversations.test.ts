@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {conversationSections,conversationPacket,restoreSourceIds,hasQueuedMessages} from '../supabase/functions/sot/conversations.ts';
+import {conversationSections,conversationPacket,restoreSourceIds,hasQueuedMessages,prioritizeConversations} from '../supabase/functions/sot/conversations.ts';
 const message=(id:string,body:string)=>({id,date:'2026-10-11T10:00:00Z',from:'client@example.test',to:'sierra@sunrosecreative.com',body});
 test('ordinary conversations remain complete and source IDs round trip',()=>{
  const messages=[message('gmail-a','Please draft the launch copy.'),message('gmail-b','Cancel the launch copy request.')];
@@ -20,4 +20,9 @@ test('long thread splits without losing text and carries candidates until final 
 test('legacy empty queue rows cannot enter analysis',()=>{
  for(const payload of [null,{}, {messages:[]},{messages:null}])assert.equal(hasQueuedMessages({payload}),false);
  assert.equal(hasQueuedMessages({payload:{messages:[message('a','Please write the copy.')]}}),true);
+});
+
+test('known client conversations get the limited calls before unrelated mail, newest client work first',()=>{
+ const rows=[{id:'newsletter',client:false,payload:{messages:[{date:'2026-10-11T10:00Z'}]}},{id:'older-client',client:true,payload:{messages:[{date:'2026-10-10T10:00Z'}]}},{id:'newer-client',client:true,payload:{messages:[{date:'2026-10-11T09:00Z'}]}}];
+ assert.deepEqual(prioritizeConversations(rows,r=>r.client).map(r=>r.id),['newer-client','older-client','newsletter']);
 });

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {supportedProposal,duplicateWork,proposalIdentity} from '../supabase/functions/sot/truth.ts';
+import {supportedProposal,duplicateWork,proposalIdentity,quoted} from '../supabase/functions/sot/truth.ts';
 import type {Proposal} from '../supabase/functions/sot/core.ts';
 const p:Proposal={kind:'task',title:'Review the Inspirational Women press release',description:'Review requested copy',client_name:'LA Times Studios',client_id:'lat',contact_email:'client@latimes.com',parent_id:null,task_id:null,project_id:'iw',new_project_name:null,due_date:null,estimated_hours:null,evidence:'Please review the press release.',source_message_id:'m1',work_state:'outstanding'};
 test('actual quotations are required, not invented or footer-only evidence',()=>{
@@ -27,4 +27,11 @@ test('exact repeats dedupe across messages but distinct clients, events and dead
  assert.equal(proposalIdentity(p),proposalIdentity({...p,source_message_id:'another-thread'}));
  for(const patch of [{client_id:'other'},{project_id:'tech'},{due_date:'2026-11-01'},{parent_id:'parent'}])assert.equal(duplicateWork({...p,...patch},[known]),null);
  assert.notEqual(proposalIdentity({...p,kind:'project',title:'October 11 2026 Flea Market'}),proposalIdentity({...p,kind:'project',title:'November 8 2026 Flea Market'}));
+});
+
+test('email reply markers and typographic quotes preserve exact evidence without accepting paraphrases',()=>{
+ const body="> Please review the client’s\n> November email copy.";
+ assert.ok(quoted("Please review the client's November email copy.",body));
+ assert.equal(quoted("Please approve the client's November email copy.",body),false);
+ assert.equal(quoted("Please review the client's email copy.",body),false);
 });

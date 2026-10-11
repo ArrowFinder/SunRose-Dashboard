@@ -1,6 +1,9 @@
 import type {Proposal} from './core.ts';
 export const canonical=(s:string)=>s.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
-export function quoted(quote:unknown,text:string){return typeof quote==='string'&&quote.trim().length>=8&&text.toLowerCase().replace(/\s+/g,' ').includes(quote.trim().toLowerCase().replace(/\s+/g,' '));}
+// Email reply markers and typographic quotes are presentation, not different evidence.
+// Still require a contiguous quotation; never accept paraphrases or omitted words.
+function quoteText(text:string){return text.normalize('NFC').replace(/^\s*(?:>\s*)+/gm,'').replace(/[‘’]/g,"'").replace(/[“”]/g,'"').toLowerCase().replace(/\s+/g,' ').trim();}
+export function quoted(quote:unknown,text:string){return typeof quote==='string'&&quote.trim().length>=8&&quoteText(text).includes(quoteText(quote));}
 export function supportedProposal(p:Proposal,source:{subject:string;body:string}){
  // A model-supplied quotation must actually occur in the cited message body.
  if(!quoted(p.evidence,source.body))return false;

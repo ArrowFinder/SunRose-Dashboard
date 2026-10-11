@@ -66,3 +66,5 @@ OAuth refresh credentials are encrypted server-side. Gmail permission is read-on
 Tests exercise migrations, permissions, approvals, retries, evidence validation, budget helpers and regressions. They do not establish live model accuracy or reproduce concurrent production database sessions. Release checks require a current backup, all migrations through `20261013000000_audit_reliability.sql`, matching SOT function files, and the frontend. See [deployment](../DEPLOY.md). Do not substitute a successful frontend build for a server type check or live verification.
 
 Size-only legacy deferrals return to automatic processing. Uncertain paid failures remain available for deliberate recovery. Existing budgets and identity/evidence checks remain in force.
+
+Repair validation notes: confirmed-client conversations take priority over unrelated mail, then newest messages first. Evidence comparison ignores email reply-prefix formatting and typographic quote variants, but still requires the same contiguous words. Diagnostics record rejection codes, lengths and boolean validation flags, never proposal or email contents.

@@ -2,7 +2,7 @@ import {createTeammate} from './team.ts';
 import { allPages, relevantWork } from './context.ts';
 import { cleanMessages, byteSize } from './sections.ts';
 import { pacificHour, tokenCost } from './batches.ts';
-import {conversationPacket,restoreSourceIds,hasQueuedMessages,CONVERSATION_RULES} from './conversations.ts';
+import {conversationPacket,restoreSourceIds,hasQueuedMessages,prioritizeConversations,CONVERSATION_RULES} from './conversations.ts';
 import {validateBatchThread} from './validation.ts';
 import { clientContext, websiteRequest, websiteResult } from './identity.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.103.2';
@@ -148,8 +148,8 @@ async function scan(uid:string,manual=false) {
    const collectedQueue:any[]=await allPages((a,b)=>db.from('sot_mail_queue').select('*').eq('user_id',uid).eq('status','ready').order('thread_id').range(a,b));
    const queued=collectedQueue.filter(hasQueuedMessages);
    for(const empty of collectedQueue.filter(t=>!hasQueuedMessages(t)))checked(await db.from('sot_mail_queue').update({status:'review',reason:'Queued content is missing; retrieve this conversation again.'}).eq('user_id',uid).eq('thread_id',empty.thread_id));
-   queued.sort((a,b)=>Math.max(...b.payload.messages.map((m:any)=>Date.parse(m.date)))-Math.max(...a.payload.messages.map((m:any)=>Date.parse(m.date))));
-   const ready=queued.map(t=>({...t,payload:{...t.payload,messages:t.focus_message_ids?t.payload.messages.filter((m:any)=>t.focus_message_ids.includes(m.id)):t.payload.messages}}));
+   const prioritized=prioritizeConversations(queued,t=>relationshipFor(t).candidates.length>0);
+   const ready=prioritized.map(t=>({...t,payload:{...t.payload,messages:t.focus_message_ids?t.payload.messages.filter((m:any)=>t.focus_message_ids.includes(m.id)):t.payload.messages}}));
    // Finish a checkpointed conversation, otherwise prioritize recent mail.
    const first=ready.find(t=>t.payload.analysis)||ready[0];
    if(first&&allowance.available>0){
