@@ -26,9 +26,9 @@ Collection and analysis have separate checkpoints. Unreviewed messages persist i
 
 One conversation is analyzed per synchronous model request. Recent queued messages take priority; a checkpointed conversation is finished before starting another. Each step makes at most one paid analysis request. A step with no eligible work uses no analysis call.
 
-Ordinary conversations are sent together, up to 48,000 serialized bytes of messages. Larger conversations use resumable sections, retaining unconfirmed candidates until later replies have been checked. Nothing is published until the final section. Input is bounded to 64,000 UTF-8 bytes including workspace context, with explicit omission counts. Full matching client tasks/projects remain available for server-side duplicate checks.
+Ordinary conversations are sent together, up to 192,000 serialized bytes of messages. Larger conversations use resumable sections, retaining unconfirmed candidates until later replies have been checked. Nothing is published until the final section. Input is bounded to 208,000 UTF-8 bytes including workspace context, with explicit omission counts. Full matching client tasks/projects remain available for server-side duplicate checks.
 
-Source identifiers are constrained to the supplied email IDs. Output is limited to 6,000 tokens; incomplete answers and uncertain paid failures retain a specific failure reason for recovery. Completed jobs retain proposed and validated counts. A saved answer or checkpoint can be resumed without paying again. Publication and message receipts commit atomically. Full queued text remains until processing completes.
+Source identifiers are constrained to the supplied email IDs. Output is limited to 6,000 tokens; incomplete answers and uncertain paid failures retain a specific failure reason for recovery. Completed jobs retain proposed and validated counts plus rejection reasons. A saved answer or checkpoint can be resumed without paying again. Publication and message receipts commit atomically. Full queued text remains until processing completes.
 
 ## Recovery and memory
 

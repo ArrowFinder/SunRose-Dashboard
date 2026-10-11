@@ -1,12 +1,12 @@
 import {byteSize, sectionMessages} from './sections.ts';
 // Prefer one complete conversation. Only large conversations need checkpoints.
 export function conversationSections(messages:any[]) {
- if(byteSize(messages)<=48000)return [messages];
+ if(byteSize(messages)<=192000)return [messages];
  return sectionMessages(messages);
 }
 export function conversationPacket(thread:any,context:any) {
  const sections=conversationSections(thread.payload.messages);
- const progress=thread.payload.analysis||{index:0,candidates:[]};
+ const progress=thread.payload.analysis?.format===2?thread.payload.analysis:{index:0,candidates:[]};
  const index=progress.index||0;
  if(index>=sections.length)throw new Error('Conversation progress changed; review required');
  const aliases=thread.payload.messages.map((m:any,i:number)=>({id:m.id,alias:`email_${i+1}`}));
@@ -15,8 +15,8 @@ export function conversationPacket(thread:any,context:any) {
  const packet={context:copy,section:{number:index+1,total:sections.length,final:index===sections.length-1},previous_candidates:progress.candidates.map((p:any)=>({...p,source_message_id:alias(p.source_message_id)})),messages:sections[index].map(({id,messageId,...m}:any)=>({...m,source_message_id:alias(id)})),older_context:thread.payload.older_context};
  copy.current_window={after:thread.payload.messages[0].date,before:thread.payload.messages.at(-1).date};
  copy.omitted_context=copy.omitted_context||{};
- for(const key of ['unconfirmed_suggestions','review_history','tasks','projects','clients'])while(byteSize(packet)>64000&&copy[key]?.length>(key==='clients'?1:0)){copy[key].pop();copy.omitted_context[key]=(copy.omitted_context[key]||0)+1;}
- if(byteSize(packet)>64000)throw new Error('Conversation metadata exceeds the review limit');
+ for(const key of ['unconfirmed_suggestions','review_history','tasks','projects','clients'])while(byteSize(packet)>208000&&copy[key]?.length>(key==='clients'?1:0)){copy[key].pop();copy.omitted_context[key]=(copy.omitted_context[key]||0)+1;}
+ if(byteSize(packet)>208000)throw new Error('Conversation metadata exceeds the review limit');
  return {input:JSON.stringify(packet),aliases,index,total:sections.length};
 }
 export function restoreSourceIds(proposals:any[],aliases:{id:string;alias:string}[]) {

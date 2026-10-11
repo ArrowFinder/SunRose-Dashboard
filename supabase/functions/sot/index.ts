@@ -187,17 +187,17 @@ async function scan(uid:string,manual=false) {
     const current=checked(await db.from('sot_mail_queue').select('payload,fingerprint').eq('user_id',uid).eq('thread_id',thread.thread_id).single());
     if(!current||current.fingerprint!==thread.fingerprint)throw new Error('Conversation changed during analysis');
     // Save checkpoint before closing the paid job. Replaying an answered job is idempotent.
-    if(current.payload.analysis?.job!==job.id)checked(await db.from('sot_mail_queue').update({payload:{...current.payload,analysis:{index:job.snapshot.index+1,candidates:job.response,job:job.id}},status:'ready'}).eq('user_id',uid).eq('thread_id',thread.thread_id));
+    if(current.payload.analysis?.job!==job.id)checked(await db.from('sot_mail_queue').update({payload:{...current.payload,analysis:{format:2,index:job.snapshot.index+1,candidates:job.response,job:job.id}},status:'ready'}).eq('user_id',uid).eq('thread_id',thread.thread_id));
     checked(await db.from('sot_batch_jobs').update({status:'complete',snapshot:{},response:null,reason:'Conversation section saved',finished_at:new Date().toISOString()}).eq('id',job.id));
    }else{
     await loadContext(job.snapshot.threads);
-    const results=[];const batchRows:any[]=[];
+    const results=[];const batchRows:any[]=[];const rejected:string[]=[];
     for(const t of job.snapshot.threads){
      const ids=new Set(t.message_ids),proposals=job.response.filter((p:any)=>ids.has(p.source_message_id));
-     const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,[...pending,...batchRows]);
+     const rows=await validateBatchThread(proposals,t.payload.messages,contextFor(t),relationshipFor(t),clients,tasks,[...pending,...batchRows],rejected);
      batchRows.push(...rows);results.push({thread_id:t.thread_id,fingerprint:t.fingerprint,proposals:rows});
     }
-    checked(await db.from('sot_batch_jobs').update({reason:JSON.stringify({proposed:job.response.length,validated:batchRows.length})}).eq('id',job.id));
+    checked(await db.from('sot_batch_jobs').update({reason:JSON.stringify({proposed:job.response.length,validated:batchRows.length,rejected})}).eq('id',job.id));
     made=checked(await db.rpc('sot_finish_batch',{job:job.id,results}));
    }
   }
