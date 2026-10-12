@@ -48,3 +48,24 @@ test('an ongoing task can use project context from an earlier message in the sam
  const missing=await validateBatchThread([{...proposal,project_evidence:'Invented launch campaign'}],messages,context,relationship,[client],[],[]);
  assert.equal(missing[0].payload.project_id,null);
 });
+
+
+test('malformed optional deadlines preserve supported suggestions with a review caution',async()=>{
+ const client={id:'c1',name:'Example Client'};
+ const source={...message('commitment','I will send the materials for review by EOD.'),subject:'Materials for review'};
+ const base:any={kind:'task',title:'Send materials for review',description:source.body,client_id:'c1',client_name:client.name,contact_email:'client@example.test',parent_id:null,task_id:null,due_date:null,estimated_hours:null,source_message_id:source.id,evidence:source.body,project_id:null,new_project_name:null,work_state:'outstanding',responsibility:'sunrose',relationship_type:'client',due_evidence:source.body,uncertainty:'Existing caution.'};
+ const validate=(p:any)=>validateBatchThread([p],[source],{projects:[]},{matched:client,candidates:[client],allowNewClient:false},[client],[],[]);
+ for(const date of ['EOD','2026-10-12T23:59:00Z','2026-02-30','2026-13-01','',undefined,123]){
+  const proposal={...base,due_date:date};const rows=await validate(proposal);
+  assert.equal(rows.length,1,String(date));assert.equal(rows[0].payload.due_date,null);assert.equal(rows[0].payload.due_evidence,null);
+  assert.match(rows[0].payload.uncertainty,/No due date was set/);assert.match(rows[0].payload.uncertainty,/Existing caution/);
+  assert.equal(proposal.due_date,date,'validation does not rewrite source proposal');
+ }
+ const datedSource={...source,body:'Send the materials by 2026-10-12.'};
+ const dated={...base,due_date:'2026-10-12',evidence:datedSource.body,due_evidence:datedSource.body};
+ const datedRows=await validateBatchThread([dated],[datedSource],{projects:[]},{matched:client,candidates:[client],allowNewClient:false},[client],[],[]);
+ assert.equal(datedRows[0].payload.due_date,'2026-10-12');
+ const noDate=await validate({...base,due_date:null});assert.doesNotMatch(noDate[0].payload.uncertainty,/No due date was set/);
+ assert.equal((await validate({...base,due_date:'EOD',evidence:'Invented request to deliver a campaign.'})).length,0);
+ assert.equal((await validate({...base,kind:'update',work_state:'changed',task_id:'missing',due_date:'EOD'})).length,0);
+});

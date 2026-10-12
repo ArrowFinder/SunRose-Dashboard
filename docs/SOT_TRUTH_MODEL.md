@@ -86,3 +86,8 @@ SOT Edit before adding, client Add action/task editing, project editing, and the
 Client/project/parent-task creation and teammate setup stay inside the editor. Explicitly created records persist even if the outer draft is cancelled; selectors immediately select the saved record. Client/project/teammate creation remains owner/admin-only. A task requires a specific client project; a subtask requires a parent in that project.
 
 Existing tasks can move between projects and become/reparent/promote subtasks within their original client. Their IDs and recorded time remain intact. Running clocks, nested subtasks and moving a main task with children underneath another task are rejected. Existing projects retain their entity type and client; converting an established project to a task, or moving established work across clients, is not provided by this release. Actual hours remain derived from time records; corrections use Time tracking. Local-only legacy mode retains its earlier task form.
+
+
+## Optional deadline validation (October 12)
+
+A malformed model-supplied deadline no longer discards an otherwise supported proposal. The validator clears the date and its date evidence and adds a visible uncertainty note asking the reviewer to check the source and choose a date. It does not guess dates from EOD or timestamps. Valid dates still require source evidence. Source quotation, client identity, update-target, duplicate, and permission checks remain in force. This change does not broaden suggestion extraction or alter the eight-proposal limit, budgets, schedules, or contact/vendor capture. Previously reviewed messages are not automatically rescanned.
