@@ -1,3 +1,4 @@
+import {cleanMessages} from '../supabase/functions/sot/sections.ts';
 import {validateBatchThread} from '../supabase/functions/sot/validation.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -68,4 +69,24 @@ test('malformed optional deadlines preserve supported suggestions with a review 
  const noDate=await validate({...base,due_date:null});assert.doesNotMatch(noDate[0].payload.uncertainty,/No due date was set/);
  assert.equal((await validate({...base,due_date:'EOD',evidence:'Invented request to deliver a campaign.'})).length,0);
  assert.equal((await validate({...base,kind:'update',work_state:'changed',task_id:'missing',due_date:'EOD'})).length,0);
+});
+
+// Synthetic counterpart of a renewed materials request; no private mailbox content.
+test('a renewed delivery commitment survives old completion history and a scheduling reply',async()=>{
+ const client={id:'c1',name:'Example Foundation'};
+ const messages=cleanMessages([
+  {...message('request','Would Wednesday at 9:30 work? Please share the current materials for our review.'),date:'2026-10-12T17:10:00Z'},
+  {...message('reply','9:30 works. Please send the invite. I will send the current materials by EOD!'),date:'2026-10-12T17:15:00Z',from:'sierra@sunrosecreative.com',to:'client@example.test'}
+ ]);
+ const context={allow_new_client:false,clients:[client],projects:[],tasks:[],review_history:[{decision:'dismissed',reason:'already_done',title:'Share materials',reviewed_at:'2026-10-11T19:58:00Z'}]};
+ const snapshot=conversationPacket({payload:{messages}},context);
+ const packet=JSON.parse(snapshot.input);
+ assert.equal(packet.messages.length,2);
+ assert.match(packet.messages[1].body,/I will send the current materials by EOD!/);
+ assert.equal(packet.context.review_history[0].reviewed_at,'2026-10-11T19:58:00Z');
+ assert.match(conversationInstructions(snapshot),/newer explicit request, renewed request, or promise/);
+ const proposal:any={kind:'task',title:'Send current materials for review',description:'Send current materials to the reviewer.',client_id:'c1',client_name:client.name,contact_email:'client@example.test',parent_id:null,task_id:null,due_date:null,estimated_hours:null,source_message_id:'reply',evidence:'I will send the current materials by EOD!',project_id:null,new_project_name:null,work_state:'outstanding',responsibility:'sunrose',relationship_type:'client'};
+ const relationship={matched:client,candidates:[client],allowNewClient:false};
+ assert.equal((await validateBatchThread([proposal],messages,context,relationship,[client],[],[])).length,1);
+ assert.equal((await validateBatchThread([{...proposal,kind:'complete',work_state:'completed',task_id:'not-a-real-task'}],messages,context,relationship,[client],[],[])).length,0);
 });

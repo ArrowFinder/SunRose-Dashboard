@@ -91,3 +91,7 @@ Existing tasks can move between projects and become/reparent/promote subtasks wi
 ## Optional deadline validation (October 12)
 
 A malformed model-supplied deadline no longer discards an otherwise supported proposal. The validator clears the date and its date evidence and adds a visible uncertainty note asking the reviewer to check the source and choose a date. It does not guess dates from EOD or timestamps. Valid dates still require source evidence. Source quotation, client identity, update-target, duplicate, and permission checks remain in force. This change does not broaden suggestion extraction or alter the eight-proposal limit, budgets, schedules, or contact/vendor capture. Previously reviewed messages are not automatically rescanned.
+
+## Renewed commitments after prior review
+
+Review decisions and suggestion summaries include their timestamps. An earlier already-done dismissal is not proof that a later explicit request or promise has been fulfilled. SOT evaluates separate deliverables independently, matches current work before proposing an update or task, and treats a future delivery promise as unfinished work. The October 12 Adriana/Sierra example is a regression scenario: materials promised by EOD remain outstanding even though a meeting time was chosen and an older materials suggestion was dismissed. Invitation sending remains the requested recipient's responsibility. Prompt regression checks do not establish live model recall; verify actual results separately.

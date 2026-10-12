@@ -74,8 +74,8 @@ async function scan(uid:string,manual=false) {
   const profiles:any[]=await allPages((a,b)=>db.from('sot_client_profiles').select('client_id,aliases,domains,location,business_type,website_url,description,services,context_notes').order('client_id').range(a,b));
   const clients=clientRows.map(c=>({...c,...profiles.find(p=>p.client_id===c.id),emails:contactRows.filter(r=>r.client_id===c.id).map(r=>r.email)}));
   let tasks:any[]=[],projects:any[]=[];
-  const reviews:any[]=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
-  const pending:any[]=await allPages((a,b)=>db.from('sot_suggestions').select('id,kind,title,description,payload,status,archived_at,source_subject,evidence').eq('user_id',uid).order('id').range(a,b));
+  const reviews:any[]=checked(await db.from('sot_review_history').select('decision,reason,kind,client_name,contact_email,title,reviewed_at').eq('user_id',uid).order('reviewed_at',{ascending:false}).limit(200))||[];
+  const pending:any[]=await allPages((a,b)=>db.from('sot_suggestions').select('id,kind,title,description,payload,status,archived_at,source_subject,evidence,created_at').eq('user_id',uid).order('id').range(a,b));
   const relationshipFor=(t:any)=>clientContext(addresses(t.payload.messages.map((m:any)=>m.from+' '+m.to+' '+m.cc).join(' ')),t.payload.messages.map((m:any)=>m.subject+' '+m.body).join(' '),clients);
   const loadContext=async(threads:any[])=>{
    const ids=[...new Set(threads.flatMap(t=>relationshipFor(t).candidates.map((x:any)=>x.id)))];
@@ -91,7 +91,7 @@ async function scan(uid:string,manual=false) {
     projects:relevantWork(clientProjects,text,30).map(x=>({...x,description:bounded(x.description||'',400)})),
     tasks:relevantWork(clientTasks,text,60),
     omitted_context:{tasks:Math.max(0,clientTasks.length-60),projects:Math.max(0,clientProjects.length-30)},
-    unconfirmed_suggestions:pending.filter(x=>ids.includes(x.payload.client_id)).slice(0,20).map(x=>({id:x.id,kind:x.kind,status:x.status,title:x.title,client_id:x.payload.client_id,project_id:x.payload.project_id})),
+    unconfirmed_suggestions:pending.filter(x=>ids.includes(x.payload.client_id)).slice(0,20).map(x=>({id:x.id,kind:x.kind,status:x.status,created_at:x.created_at,title:x.title,client_id:x.payload.client_id,project_id:x.payload.project_id})),
     review_history:reviews.filter(x=>x.client_name===rel.matched?.name).slice(0,12)};
   };
   let collecting=!!c.collection_cursor;
