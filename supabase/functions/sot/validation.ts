@@ -6,7 +6,13 @@ async function hash(s:string){return Array.from(new Uint8Array(await crypto.subt
 export async function validateBatchThread(proposals:Proposal[],selected:any[],context:any,relationship:any,clients:any[],tasks:any[],pending:any[],diagnostics:string[]=[]){
  const contacts=addresses(selected.map(m=>m.from+" "+m.to+" "+m.cc).join(" "));const matched=relationship.matched;
    const rows:any[]=[];
-   for(const p of proposals) {
+   for(const original of proposals) {
+    const p={...original};
+    // A deadline is optional. Preserve supported work without guessing an invalid date.
+    if(p.due_date!==null && (typeof p.due_date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(p.due_date)||!Number.isFinite(Date.parse(p.due_date))||new Date(p.due_date).toISOString().slice(0,10)!==p.due_date)){
+     p.due_date=null;p.due_evidence=null;
+     p.uncertainty=[p.uncertainty,'SOT could not validate the suggested deadline. No due date was set; review the source email before choosing a date.'].filter(Boolean).join(' ');
+    }
     if(p.kind!=='client'&&matched) {p.client_id=matched.id;p.client_name=matched.name;}
     if(!validProposal(p,selected.map((m:any)=>m.id),contacts,relationship.candidates.filter((c:any)=>!c.archived_at).map((c:any)=>c.id))) {diagnostics.push('invalid_fields_or_contact:'+JSON.stringify({contactPresent:contacts.includes(p.contact_email?.toLowerCase()),titleLength:p.title?.length,descriptionLength:p.description?.length,evidenceLength:p.evidence?.length,clientNamePresent:!!p.client_name?.trim(),sourcePresent:selected.some(m=>m.id===p.source_message_id),dueDateValid:p.due_date===null||(/^\d{4}-\d{2}-\d{2}$/.test(p.due_date)&&Number.isFinite(Date.parse(p.due_date))),estimateValid:p.estimated_hours===null||(typeof p.estimated_hours==='number'&&p.estimated_hours>=0&&p.estimated_hours<=1000)}));continue;}
     if(p.kind==='client' && (p.relationship_type!=='client'||!relationship.allowNewClient)) {diagnostics.push('not_new_client');continue;}
